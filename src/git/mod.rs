@@ -1,3 +1,3 @@
 mod stats;
 
-pub use stats::{GitStats, GitTracker};
+pub use stats::{format_time_ago, DetectedCommit, GitStats, GitTracker};

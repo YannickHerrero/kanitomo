@@ -1,19 +1,22 @@
-use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
-use git2::{Repository, Sort};
-use std::collections::{HashMap, HashSet};
+use chrono::{DateTime, Local};
+use git2::Repository;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Statistics about git activity
+/// Information about a detected commit
+#[derive(Debug, Clone)]
+pub struct DetectedCommit {
+    /// Git commit hash
+    pub commit_hash: String,
+    /// Project identifier (remote URL or absolute path)
+    pub project_id: String,
+    /// Project display name (folder name)
+    pub project_name: String,
+}
+
+/// Statistics about git activity (display purposes)
 #[derive(Debug, Clone, Default)]
 pub struct GitStats {
-    /// Number of commits made today
-    pub commits_today: u32,
-    /// Current streak of consecutive days with commits
-    pub current_streak: u32,
-    /// Best streak ever (from persistence)
-    pub best_streak: u32,
-    /// Time of the last commit
-    pub last_commit: Option<DateTime<Local>>,
     /// Whether we're in a git repository
     pub in_git_repo: bool,
     /// Number of repositories being tracked
@@ -22,29 +25,27 @@ pub struct GitStats {
     pub repo_names: Vec<String>,
 }
 
-impl GitStats {
-    /// Format the last commit time as a human-readable string
-    pub fn last_commit_ago(&self) -> String {
-        match self.last_commit {
-            Some(time) => {
-                let now = Local::now();
-                let duration = now.signed_duration_since(time);
+/// Format a datetime as a human-readable "X ago" string
+pub fn format_time_ago(time: Option<DateTime<Local>>) -> String {
+    match time {
+        Some(time) => {
+            let now = Local::now();
+            let duration = now.signed_duration_since(time);
 
-                if duration.num_seconds() < 60 {
-                    "just now".to_string()
-                } else if duration.num_minutes() < 60 {
-                    let mins = duration.num_minutes();
-                    format!("{} min{} ago", mins, if mins == 1 { "" } else { "s" })
-                } else if duration.num_hours() < 24 {
-                    let hours = duration.num_hours();
-                    format!("{} hour{} ago", hours, if hours == 1 { "" } else { "s" })
-                } else {
-                    let days = duration.num_days();
-                    format!("{} day{} ago", days, if days == 1 { "" } else { "s" })
-                }
+            if duration.num_seconds() < 60 {
+                "just now".to_string()
+            } else if duration.num_minutes() < 60 {
+                let mins = duration.num_minutes();
+                format!("{} min{} ago", mins, if mins == 1 { "" } else { "s" })
+            } else if duration.num_hours() < 24 {
+                let hours = duration.num_hours();
+                format!("{} hour{} ago", hours, if hours == 1 { "" } else { "s" })
+            } else {
+                let days = duration.num_days();
+                format!("{} day{} ago", days, if days == 1 { "" } else { "s" })
             }
-            None => "never".to_string(),
         }
+        None => "never".to_string(),
     }
 }
 
@@ -126,9 +127,8 @@ impl GitTracker {
     }
 
     /// Check if there's a new commit since last check in any repository
-    pub fn check_for_new_commit(&mut self) -> bool {
-        let mut has_new = false;
-
+    /// Returns details about the detected commit if found
+    pub fn check_for_new_commit(&mut self) -> Option<DetectedCommit> {
         for repo in &self.repos {
             let repo_path = repo.path().to_path_buf();
             let current_head = repo
@@ -140,20 +140,52 @@ impl GitTracker {
             if let Some(current) = current_head {
                 let is_new = match self.last_heads.get(&repo_path) {
                     Some(old) => old != &current,
-                    None => true,
+                    None => false, // Don't count initial HEAD as new commit
                 };
 
                 if is_new {
-                    self.last_heads.insert(repo_path, current);
-                    has_new = true;
+                    self.last_heads.insert(repo_path, current.clone());
+
+                    let project_id = Self::get_project_id(repo);
+                    let project_name = Self::get_project_name(repo);
+
+                    return Some(DetectedCommit {
+                        commit_hash: current,
+                        project_id,
+                        project_name,
+                    });
                 }
             }
         }
 
-        has_new
+        None
     }
 
-    /// Get current git statistics aggregated across all repositories
+    /// Get the project identifier (remote URL or absolute path)
+    fn get_project_id(repo: &Repository) -> String {
+        // Try to get the origin remote URL
+        repo.find_remote("origin")
+            .ok()
+            .and_then(|remote| remote.url().map(|s| s.to_string()))
+            .unwrap_or_else(|| {
+                // Fallback to canonical absolute path
+                repo.workdir()
+                    .map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            })
+    }
+
+    /// Get the project display name (folder name)
+    fn get_project_name(repo: &Repository) -> String {
+        repo.workdir()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    }
+
+    /// Get basic git info (repos being tracked)
     pub fn get_stats(&self) -> GitStats {
         if self.repos.is_empty() {
             return GitStats {
@@ -162,61 +194,10 @@ impl GitTracker {
             };
         }
 
-        let today = Local::now().date_naive();
-        let cutoff_date = today - Duration::days(30);
-
-        let mut commits_today: u32 = 0;
-        let mut last_commit_time: Option<DateTime<Local>> = None;
-        let mut all_commit_dates: HashSet<NaiveDate> = HashSet::new();
-
-        for repo in &self.repos {
-            if let Ok(mut revwalk) = repo.revwalk() {
-                revwalk.set_sorting(Sort::TIME).ok();
-
-                if revwalk.push_head().is_ok() {
-                    for oid in revwalk.filter_map(|r| r.ok()) {
-                        if let Ok(commit) = repo.find_commit(oid) {
-                            let time = commit.time();
-                            let datetime = Utc
-                                .timestamp_opt(time.seconds(), 0)
-                                .single()
-                                .map(|dt| dt.with_timezone(&Local));
-
-                            if let Some(dt) = datetime {
-                                let date = dt.date_naive();
-
-                                // Stop if older than 30 days
-                                if date < cutoff_date {
-                                    break;
-                                }
-
-                                // Track most recent commit across all repos
-                                if last_commit_time.is_none() || Some(dt) > last_commit_time {
-                                    last_commit_time = Some(dt);
-                                }
-
-                                // Count commits today
-                                if date == today {
-                                    commits_today += 1;
-                                }
-
-                                // Track all dates for streak calculation
-                                all_commit_dates.insert(date);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         GitStats {
             in_git_repo: true,
             repo_count: self.repos.len(),
             repo_names: self.repo_names(),
-            commits_today,
-            last_commit: last_commit_time,
-            current_streak: calculate_streak(&all_commit_dates, today),
-            ..Default::default()
         }
     }
 
@@ -224,28 +205,6 @@ impl GitTracker {
     pub fn git_dirs(&self) -> Vec<PathBuf> {
         self.repos.iter().map(|r| r.path().to_path_buf()).collect()
     }
-}
-
-/// Calculate the current streak of consecutive days with commits
-fn calculate_streak(commit_dates: &HashSet<NaiveDate>, today: NaiveDate) -> u32 {
-    let mut streak = 0;
-    let mut check_date = today;
-
-    // If no commit today, start from yesterday
-    if !commit_dates.contains(&check_date) {
-        check_date = check_date.pred_opt().unwrap_or(check_date);
-    }
-
-    // Count consecutive days
-    while commit_dates.contains(&check_date) {
-        streak += 1;
-        check_date = match check_date.pred_opt() {
-            Some(d) => d,
-            None => break,
-        };
-    }
-
-    streak
 }
 
 impl Default for GitTracker {

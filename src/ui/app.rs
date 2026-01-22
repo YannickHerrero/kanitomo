@@ -1,8 +1,9 @@
 use crate::crab::{Crab, Mood};
-use crate::git::{GitStats, GitTracker};
-use crate::state::{AppState, StateManager};
+use crate::git::{DetectedCommit, GitStats, GitTracker};
+use crate::state::{calculate_streak_from_history, AppState, StateManager, TrackedCommit};
 use crate::ui::{messages, widgets};
 use anyhow::Result;
+use chrono::Local;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use ratatui::{
@@ -18,11 +19,11 @@ pub struct App {
     pub crab: Crab,
     /// Git tracker
     pub git_tracker: GitTracker,
-    /// Current git stats
+    /// Current git stats (basic repo info)
     pub git_stats: GitStats,
     /// State manager for persistence
     pub state_manager: StateManager,
-    /// Current app state
+    /// Current app state (includes commit history)
     pub app_state: AppState,
     /// Whether the app should quit
     pub should_quit: bool,
@@ -30,6 +31,8 @@ pub struct App {
     pub debug_mode: bool,
     /// Whether to show the repo list overlay
     pub show_repo_list: bool,
+    /// Whether to show the details overlay
+    pub show_details: bool,
     /// File watcher for git changes (kept alive to maintain watching)
     _watcher: Option<RecommendedWatcher>,
     /// Channel for receiving file change events
@@ -55,10 +58,7 @@ impl App {
         let app_state = state_manager.load()?;
 
         let git_tracker = GitTracker::new();
-        let mut git_stats = git_tracker.get_stats();
-
-        // Update best streak from persistence
-        git_stats.best_streak = app_state.best_streak;
+        let git_stats = git_tracker.get_stats();
 
         // Create the crab with loaded happiness
         let crab = Crab::new((10.0, 2.0), app_state.happiness);
@@ -106,6 +106,7 @@ impl App {
             should_quit: false,
             debug_mode,
             show_repo_list: false,
+            show_details: false,
             _watcher: watcher,
             watcher_rx,
             last_save: Instant::now(),
@@ -158,6 +159,8 @@ impl App {
             KeyCode::Char('q') | KeyCode::Esc => {
                 if self.show_repo_list {
                     self.show_repo_list = false;
+                } else if self.show_details {
+                    self.show_details = false;
                 } else {
                     self.should_quit = true;
                 }
@@ -166,7 +169,13 @@ impl App {
                 // Toggle repo list view (only if tracking multiple repos)
                 if self.git_stats.repo_count > 1 {
                     self.show_repo_list = !self.show_repo_list;
+                    self.show_details = false; // Close other overlay
                 }
+            }
+            KeyCode::Char('d') => {
+                // Toggle details view
+                self.show_details = !self.show_details;
+                self.show_repo_list = false; // Close other overlay
             }
             KeyCode::Char('r') => {
                 // Manual refresh
@@ -226,29 +235,53 @@ impl App {
         };
 
         // If we had events, check for new commits
-        if has_events && self.git_tracker.check_for_new_commit() {
-            self.on_new_commit();
+        if has_events {
+            if let Some(detected) = self.git_tracker.check_for_new_commit() {
+                self.on_new_commit(detected);
+            }
         }
     }
 
     /// Called when a new commit is detected
-    fn on_new_commit(&mut self) {
+    fn on_new_commit(&mut self, detected: DetectedCommit) {
+        // Check for duplicate (same commit hash)
+        if self
+            .app_state
+            .commit_history
+            .iter()
+            .any(|c| c.commit_hash == detected.commit_hash)
+        {
+            return; // Already tracked this commit
+        }
+
+        // Add to commit history
+        let tracked = TrackedCommit {
+            timestamp: Local::now(),
+            commit_hash: detected.commit_hash,
+            project_id: detected.project_id,
+            project_name: detected.project_name,
+        };
+        self.app_state.commit_history.push(tracked);
+
+        // Update last commit time
+        self.app_state.last_commit_time = Some(Local::now());
+
+        // Recalculate streak
+        self.app_state.current_streak =
+            calculate_streak_from_history(&self.app_state.commit_history);
+
+        // Update best streak if needed
+        if self.app_state.current_streak > self.app_state.best_streak {
+            self.app_state.best_streak = self.app_state.current_streak;
+        }
+
         // Boost happiness significantly
         self.crab.boost_happiness(25);
         self.crab.celebrate();
 
-        // Update stats
-        self.refresh_stats();
-
         // Update app state
         self.app_state.happiness = self.crab.happiness;
         self.app_state.total_commits_tracked += 1;
-
-        // Update best streak if needed
-        if self.git_stats.current_streak > self.app_state.best_streak {
-            self.app_state.best_streak = self.git_stats.current_streak;
-            self.git_stats.best_streak = self.app_state.best_streak;
-        }
 
         // Show a commit reaction message for 30 seconds
         self.set_temp_message(messages::get_commit_message());
@@ -306,10 +339,9 @@ impl App {
             .unwrap_or(&self.current_message)
     }
 
-    /// Refresh git statistics (display only, no happiness changes)
+    /// Refresh git statistics (basic repo info)
     fn refresh_stats(&mut self) {
         self.git_stats = self.git_tracker.get_stats();
-        self.git_stats.best_streak = self.app_state.best_streak;
     }
 
     /// Save application state
@@ -341,7 +373,13 @@ impl App {
         // Render components
         widgets::render_title(frame, chunks[0], self.get_display_message());
         widgets::render_crab(frame, &self.crab, chunks[1]);
-        widgets::render_stats(frame, &self.git_stats, self.crab.happiness, chunks[2]);
+        widgets::render_stats(
+            frame,
+            &self.git_stats,
+            &self.app_state,
+            self.crab.happiness,
+            chunks[2],
+        );
         widgets::render_help(
             frame,
             chunks[3],
@@ -349,9 +387,13 @@ impl App {
             self.git_stats.repo_count > 1,
         );
 
-        // Render repo list overlay if active
+        // Render overlays
         if self.show_repo_list {
             widgets::render_repo_list(frame, &self.git_stats.repo_names, area);
+        }
+
+        if self.show_details {
+            widgets::render_details_overlay(frame, &self.app_state, area);
         }
     }
 }

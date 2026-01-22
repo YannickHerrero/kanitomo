@@ -1,5 +1,7 @@
 use crate::crab::Crab;
-use crate::git::GitStats;
+use crate::git::{format_time_ago, GitStats};
+use crate::state::{get_today_by_project, get_week_summary, AppState};
+use chrono::Datelike;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -43,8 +45,20 @@ pub fn render_crab(frame: &mut Frame, crab: &Crab, area: Rect) {
 }
 
 /// Render the stats panel
-pub fn render_stats(frame: &mut Frame, stats: &GitStats, happiness: u8, area: Rect) {
+pub fn render_stats(
+    frame: &mut Frame,
+    stats: &GitStats,
+    app_state: &AppState,
+    happiness: u8,
+    area: Rect,
+) {
     let mood = crate::crab::Mood::from_happiness(happiness);
+
+    // Get commits today from tracked history
+    let commits_today = get_today_by_project(&app_state.commit_history)
+        .iter()
+        .map(|(_, _, count)| count)
+        .sum::<u32>();
 
     let mut lines = vec![
         Line::from(vec![
@@ -82,11 +96,12 @@ pub fn render_stats(frame: &mut Frame, stats: &GitStats, happiness: u8, area: Re
         lines.push(Line::from(vec![
             Span::styled("  Commits today: ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                stats.commits_today.to_string(),
+                commits_today.to_string(),
                 Style::default()
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD),
             ),
+            Span::styled(" [d]", Style::default().fg(Color::DarkGray)),
         ]));
 
         lines.push(Line::from(vec![
@@ -94,8 +109,12 @@ pub fn render_stats(frame: &mut Frame, stats: &GitStats, happiness: u8, area: Re
             Span::styled(
                 format!(
                     "{} day{}",
-                    stats.current_streak,
-                    if stats.current_streak == 1 { "" } else { "s" }
+                    app_state.current_streak,
+                    if app_state.current_streak == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
                 ),
                 Style::default()
                     .fg(Color::Yellow)
@@ -103,11 +122,11 @@ pub fn render_stats(frame: &mut Frame, stats: &GitStats, happiness: u8, area: Re
             ),
         ]));
 
-        if stats.best_streak > 0 {
+        if app_state.best_streak > 0 {
             lines.push(Line::from(vec![
                 Span::styled("  Best streak: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    format!("{} days", stats.best_streak),
+                    format!("{} days", app_state.best_streak),
                     Style::default().fg(Color::Magenta),
                 ),
             ]));
@@ -115,7 +134,10 @@ pub fn render_stats(frame: &mut Frame, stats: &GitStats, happiness: u8, area: Re
 
         lines.push(Line::from(vec![
             Span::styled("  Last commit: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(stats.last_commit_ago(), Style::default().fg(Color::White)),
+            Span::styled(
+                format_time_ago(app_state.last_commit_time),
+                Style::default().fg(Color::White),
+            ),
         ]));
     } else {
         lines.push(Line::from(vec![Span::styled(
@@ -185,6 +207,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, debug_mode: bool, multi_repo: 
         Span::styled("quit  ", Style::default().fg(Color::DarkGray)),
         Span::styled("[r] ", Style::default().fg(Color::Yellow)),
         Span::styled("refresh  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("[d] ", Style::default().fg(Color::Yellow)),
+        Span::styled("details  ", Style::default().fg(Color::DarkGray)),
     ];
 
     if multi_repo {
@@ -264,6 +288,196 @@ pub fn render_repo_list(frame: &mut Frame, repo_names: &[String], area: Rect) {
 
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, overlay_area);
+}
+
+/// Render the activity details overlay
+pub fn render_details_overlay(frame: &mut Frame, app_state: &AppState, area: Rect) {
+    let today_by_project = get_today_by_project(&app_state.commit_history);
+    let week_summary = get_week_summary(&app_state.commit_history);
+
+    // Calculate required height
+    let today_lines = today_by_project.len().max(1) + 3; // projects + header + total + blank
+    let week_lines = week_summary.len() + 2; // days + header + total
+    let footer_lines = 2;
+    let total_height = (today_lines + week_lines + footer_lines + 4) as u16; // +4 for borders and spacing
+
+    let overlay_width = 45.min(area.width.saturating_sub(4));
+    let overlay_height = total_height.min(area.height.saturating_sub(4));
+
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    // Clear the area behind the overlay
+    frame.render_widget(Clear, overlay_area);
+
+    let mut lines: Vec<Line> = vec![];
+
+    // Today section
+    let today_total: u32 = today_by_project.iter().map(|(_, _, c)| c).sum();
+    lines.push(Line::from(vec![Span::styled(
+        format!("  TODAY ({})", chrono::Local::now().format("%b %d")),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    if today_by_project.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "    No commits yet today",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]));
+    } else {
+        let max_count = today_by_project
+            .iter()
+            .map(|(_, _, c)| *c)
+            .max()
+            .unwrap_or(1);
+        for (_id, name, count) in &today_by_project {
+            let bar_len = (*count as usize * 10) / max_count.max(1) as usize;
+            let bar = "█".repeat(bar_len.max(1));
+            let padding = " ".repeat(10 - bar_len.max(1));
+
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("    {:<16}", truncate_str(name, 16)),
+                    Style::default().fg(Color::White),
+                ),
+                Span::styled(bar, Style::default().fg(Color::Green)),
+                Span::styled(padding, Style::default()),
+                Span::styled(
+                    format!(" {} commit{}", count, if *count == 1 { "" } else { "s" }),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(vec![
+        Span::styled("    ", Style::default()),
+        Span::styled("─".repeat(30), Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("    Total", Style::default().fg(Color::White)),
+        Span::styled(
+            format!(
+                "            {} commit{}",
+                today_total,
+                if today_total == 1 { "" } else { "s" }
+            ),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+
+    // This week section
+    lines.push(Line::from(vec![Span::styled(
+        "  THIS WEEK",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    let week_total: u32 = week_summary.iter().map(|(_, c)| c).sum();
+    let max_day_count = week_summary.iter().map(|(_, c)| *c).max().unwrap_or(1);
+    let today_date = chrono::Local::now().date_naive();
+
+    for (date, count) in &week_summary {
+        let day_name = match date.weekday() {
+            chrono::Weekday::Mon => "Mon",
+            chrono::Weekday::Tue => "Tue",
+            chrono::Weekday::Wed => "Wed",
+            chrono::Weekday::Thu => "Thu",
+            chrono::Weekday::Fri => "Fri",
+            chrono::Weekday::Sat => "Sat",
+            chrono::Weekday::Sun => "Sun",
+        };
+
+        let bar_len = if max_day_count > 0 {
+            (*count as usize * 10) / max_day_count as usize
+        } else {
+            0
+        };
+        let bar = if *count > 0 {
+            "█".repeat(bar_len.max(1))
+        } else {
+            "░".to_string()
+        };
+        let padding = " ".repeat(10usize.saturating_sub(bar.chars().count()));
+
+        let is_today = *date == today_date;
+        let day_style = if is_today {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::White)
+        };
+
+        let suffix = if is_today { " (today)" } else { "" };
+
+        lines.push(Line::from(vec![
+            Span::styled(format!("    {:<6}", day_name), day_style),
+            Span::styled(bar, Style::default().fg(Color::Magenta)),
+            Span::styled(padding, Style::default()),
+            Span::styled(
+                format!(
+                    " {} commit{}{}",
+                    count,
+                    if *count == 1 { "" } else { "s" },
+                    suffix
+                ),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+    }
+
+    lines.push(Line::from(vec![
+        Span::styled("    ", Style::default()),
+        Span::styled("─".repeat(30), Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("    Week total", Style::default().fg(Color::White)),
+        Span::styled(
+            format!(
+                "       {} commit{}",
+                week_total,
+                if week_total == 1 { "" } else { "s" }
+            ),
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [d] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Activity Details ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
+}
+
+/// Truncate a string to a maximum length, adding ".." if truncated
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}..", &s[..max_len - 2])
+    }
 }
 
 /// Helper function to create a centered rect
