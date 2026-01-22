@@ -208,17 +208,16 @@ pub fn render_help(frame: &mut Frame, area: Rect, debug_mode: bool, multi_repo: 
     frame.render_widget(paragraph, area);
 }
 
-/// Render the title bar
-pub fn render_title(frame: &mut Frame, area: Rect) {
+/// Render the title bar with Kani's message
+pub fn render_title(frame: &mut Frame, area: Rect, message: &str) {
     let title = Line::from(vec![
-        Span::styled(" 🦀 ", Style::default().fg(Color::Red)),
+        Span::styled("Kani: ", Style::default().fg(Color::Cyan)),
         Span::styled(
-            "Kanitomo",
+            format!("\"{}\"", message),
             Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+                .fg(Color::White)
+                .add_modifier(Modifier::ITALIC),
         ),
-        Span::styled(" 🦀 ", Style::default().fg(Color::Red)),
     ]);
 
     let paragraph = Paragraph::new(title).alignment(Alignment::Center);

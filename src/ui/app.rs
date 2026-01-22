@@ -1,7 +1,7 @@
-use crate::crab::Crab;
+use crate::crab::{Crab, Mood};
 use crate::git::{GitStats, GitTracker};
 use crate::state::{AppState, StateManager};
-use crate::ui::widgets;
+use crate::ui::{messages, widgets};
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
@@ -36,6 +36,16 @@ pub struct App {
     watcher_rx: Option<Receiver<notify::Result<notify::Event>>>,
     /// Last time we saved state
     last_save: Instant,
+    /// Current message from Kani
+    current_message: String,
+    /// Temporary message (for reactions to events)
+    temp_message: Option<String>,
+    /// When the temp message should expire
+    temp_message_until: Option<Instant>,
+    /// Last time we changed the idle message
+    last_message_change: Instant,
+    /// Last known mood (to detect mood changes)
+    last_mood: Mood,
 }
 
 impl App {
@@ -84,6 +94,9 @@ impl App {
             (None, None)
         };
 
+        let current_mood = Mood::from_happiness(app_state.happiness);
+        let initial_message = messages::get_mood_message(current_mood).to_string();
+
         Ok(Self {
             crab,
             git_tracker,
@@ -96,6 +109,11 @@ impl App {
             _watcher: watcher,
             watcher_rx,
             last_save: Instant::now(),
+            current_message: initial_message,
+            temp_message: None,
+            temp_message_until: None,
+            last_message_change: Instant::now(),
+            last_mood: current_mood,
         })
     }
 
@@ -180,6 +198,12 @@ impl App {
         // Check for file system events (new commits)
         self.check_for_changes();
 
+        // Check for mood changes
+        self.check_mood_change();
+
+        // Update messages
+        self.update_messages();
+
         // Periodic save (every 60 seconds)
         if self.last_save.elapsed() > Duration::from_secs(60) {
             let _ = self.save_state();
@@ -225,6 +249,61 @@ impl App {
             self.app_state.best_streak = self.git_stats.current_streak;
             self.git_stats.best_streak = self.app_state.best_streak;
         }
+
+        // Show a commit reaction message for 30 seconds
+        self.set_temp_message(messages::get_commit_message());
+    }
+
+    /// Check for mood changes and react with messages
+    fn check_mood_change(&mut self) {
+        let current_mood = Mood::from_happiness(self.crab.happiness);
+
+        if current_mood != self.last_mood {
+            // Mood changed - show a reaction message
+            let message = if current_mood as u8 > self.last_mood as u8 {
+                // Mood went down (higher enum value = worse mood)
+                messages::get_mood_down_message()
+            } else {
+                // Mood went up
+                messages::get_mood_up_message()
+            };
+
+            self.set_temp_message(message);
+            self.last_mood = current_mood;
+        }
+    }
+
+    /// Update message rotation
+    fn update_messages(&mut self) {
+        // Check if temp message has expired
+        if let Some(until) = self.temp_message_until {
+            if Instant::now() >= until {
+                self.temp_message = None;
+                self.temp_message_until = None;
+            }
+        }
+
+        // Rotate idle message every 2 minutes (only if no temp message)
+        if self.temp_message.is_none()
+            && self.last_message_change.elapsed() > Duration::from_secs(120)
+        {
+            let mood = Mood::from_happiness(self.crab.happiness);
+            self.current_message = messages::get_mood_message(mood).to_string();
+            self.last_message_change = Instant::now();
+        }
+    }
+
+    /// Set a temporary message that shows for 30 seconds
+    fn set_temp_message(&mut self, message: &str) {
+        self.temp_message = Some(message.to_string());
+        self.temp_message_until = Some(Instant::now() + Duration::from_secs(30));
+    }
+
+    /// Get the current message to display
+    pub fn get_display_message(&self) -> &str {
+        self.temp_message
+            .as_deref()
+            .unwrap_or(&self.current_message)
     }
 
     /// Refresh git statistics (display only, no happiness changes)
@@ -260,7 +339,7 @@ impl App {
             .split(area);
 
         // Render components
-        widgets::render_title(frame, chunks[0]);
+        widgets::render_title(frame, chunks[0], self.get_display_message());
         widgets::render_crab(frame, &self.crab, chunks[1]);
         widgets::render_stats(frame, &self.git_stats, self.crab.happiness, chunks[2]);
         widgets::render_help(
