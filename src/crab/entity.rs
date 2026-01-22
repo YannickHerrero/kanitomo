@@ -325,7 +325,6 @@ impl Crab {
     }
 
     /// Decay happiness over time
-    #[allow(dead_code)]
     pub fn decay_happiness(&mut self, amount: u8) {
         self.happiness = self.happiness.saturating_sub(amount);
         self.mood = Mood::from_happiness(self.happiness);

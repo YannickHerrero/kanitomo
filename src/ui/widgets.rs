@@ -174,7 +174,9 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         Span::styled("[r] ", Style::default().fg(Color::Yellow)),
         Span::styled("refresh  ", Style::default().fg(Color::DarkGray)),
         Span::styled("[f] ", Style::default().fg(Color::Yellow)),
-        Span::styled("feed (+10)  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("feed  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("[p] ", Style::default().fg(Color::Yellow)),
+        Span::styled("punish  ", Style::default().fg(Color::DarkGray)),
     ]);
 
     let paragraph = Paragraph::new(help_text).alignment(Alignment::Center);

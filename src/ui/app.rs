@@ -139,9 +139,14 @@ impl App {
                 self.refresh_stats();
             }
             KeyCode::Char('f') => {
-                // Manual feed (for testing/fun)
-                self.crab.boost_happiness(10);
+                // Manual feed (for debug/testing)
+                self.crab.boost_happiness(5);
                 self.crab.celebrate();
+                self.app_state.happiness = self.crab.happiness;
+            }
+            KeyCode::Char('p') => {
+                // Punish (for debug/testing)
+                self.crab.decay_happiness(5);
                 self.app_state.happiness = self.crab.happiness;
             }
             _ => {}
