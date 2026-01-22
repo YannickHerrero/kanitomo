@@ -1,7 +1,7 @@
-use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
 use git2::{Repository, Sort};
-use std::collections::HashSet;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 /// Statistics about git activity
 #[derive(Debug, Clone, Default)]
@@ -14,13 +14,12 @@ pub struct GitStats {
     pub best_streak: u32,
     /// Time of the last commit
     pub last_commit: Option<DateTime<Local>>,
-    /// Total commits tracked in this session
-    #[allow(dead_code)]
-    pub total_commits_tracked: u32,
     /// Whether we're in a git repository
     pub in_git_repo: bool,
-    /// The repository name (folder name)
-    pub repo_name: Option<String>,
+    /// Number of repositories being tracked
+    pub repo_count: usize,
+    /// Names of all tracked repositories
+    pub repo_names: Vec<String>,
 }
 
 impl GitStats {
@@ -49,138 +48,181 @@ impl GitStats {
     }
 }
 
-/// Tracks git repository activity
+/// Tracks git repository activity across one or more repositories
 pub struct GitTracker {
-    repo: Option<Repository>,
-    /// Last known HEAD commit hash
-    last_head: Option<String>,
+    /// All tracked repositories
+    repos: Vec<Repository>,
+    /// Last known HEAD commit hash per repository (keyed by repo path)
+    last_heads: HashMap<PathBuf, String>,
 }
 
 impl GitTracker {
     /// Create a new git tracker for the current directory
+    /// If in a git repo, tracks just that repo
+    /// If not, scans immediate subdirectories for git repos
     pub fn new() -> Self {
-        let repo = Repository::discover(".").ok();
-        let last_head = repo
-            .as_ref()
-            .and_then(|r| r.head().ok()?.target().map(|oid| oid.to_string()));
+        let repos = Self::discover_repos();
+        let mut last_heads = HashMap::new();
 
-        Self { repo, last_head }
+        for repo in &repos {
+            if let Some(head) = repo
+                .head()
+                .ok()
+                .and_then(|r| r.target())
+                .map(|oid| oid.to_string())
+            {
+                last_heads.insert(repo.path().to_path_buf(), head);
+            }
+        }
+
+        Self { repos, last_heads }
     }
 
-    /// Create a tracker for a specific path
-    #[allow(dead_code)]
-    pub fn from_path(path: &Path) -> Self {
-        let repo = Repository::discover(path).ok();
-        let last_head = repo
-            .as_ref()
-            .and_then(|r| r.head().ok()?.target().map(|oid| oid.to_string()));
+    /// Discover git repositories
+    /// First checks if current directory is a git repo, if so returns just that
+    /// Otherwise scans immediate subdirectories for git repos
+    fn discover_repos() -> Vec<Repository> {
+        // First, check if we're in a git repo
+        if let Ok(repo) = Repository::discover(".") {
+            return vec![repo];
+        }
 
-        Self { repo, last_head }
+        // Not in a git repo, scan immediate subdirectories
+        let mut repos = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir(".") {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_dir() {
+                    // Try to open as a git repository
+                    if let Ok(repo) = Repository::open(&path) {
+                        repos.push(repo);
+                    }
+                }
+            }
+        }
+
+        // Sort by repo name for consistent ordering
+        repos.sort_by(|a, b| {
+            let name_a = a.workdir().and_then(|p| p.file_name());
+            let name_b = b.workdir().and_then(|p| p.file_name());
+            name_a.cmp(&name_b)
+        });
+
+        repos
     }
 
-    /// Check if we're in a git repository
-    #[allow(dead_code)]
-    pub fn is_in_repo(&self) -> bool {
-        self.repo.is_some()
+    /// Get the names of all tracked repositories
+    pub fn repo_names(&self) -> Vec<String> {
+        self.repos
+            .iter()
+            .filter_map(|r| {
+                r.workdir()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .map(|s| s.to_string())
+            })
+            .collect()
     }
 
-    /// Get the repository name
-    pub fn repo_name(&self) -> Option<String> {
-        self.repo.as_ref().and_then(|r| {
-            r.workdir()
-                .and_then(|p| p.file_name())
-                .and_then(|n| n.to_str())
-                .map(|s| s.to_string())
-        })
-    }
-
-    /// Check if there's a new commit since last check
+    /// Check if there's a new commit since last check in any repository
     pub fn check_for_new_commit(&mut self) -> bool {
-        let Some(repo) = &self.repo else {
-            return false;
-        };
+        let mut has_new = false;
 
-        let current_head = repo
-            .head()
-            .ok()
-            .and_then(|r| r.target())
-            .map(|oid| oid.to_string());
+        for repo in &self.repos {
+            let repo_path = repo.path().to_path_buf();
+            let current_head = repo
+                .head()
+                .ok()
+                .and_then(|r| r.target())
+                .map(|oid| oid.to_string());
 
-        let has_new = match (&self.last_head, &current_head) {
-            (Some(old), Some(new)) => old != new,
-            (None, Some(_)) => true,
-            _ => false,
-        };
+            if let Some(current) = current_head {
+                let is_new = match self.last_heads.get(&repo_path) {
+                    Some(old) => old != &current,
+                    None => true,
+                };
 
-        if has_new {
-            self.last_head = current_head;
+                if is_new {
+                    self.last_heads.insert(repo_path, current);
+                    has_new = true;
+                }
+            }
         }
 
         has_new
     }
 
-    /// Get current git statistics
+    /// Get current git statistics aggregated across all repositories
     pub fn get_stats(&self) -> GitStats {
-        let Some(repo) = &self.repo else {
+        if self.repos.is_empty() {
             return GitStats {
                 in_git_repo: false,
                 ..Default::default()
             };
-        };
+        }
 
-        let mut stats = GitStats {
-            in_git_repo: true,
-            repo_name: self.repo_name(),
-            ..Default::default()
-        };
+        let today = Local::now().date_naive();
+        let cutoff_date = today - Duration::days(30);
 
-        // Get commits
-        if let Ok(mut revwalk) = repo.revwalk() {
-            revwalk.set_sorting(Sort::TIME).ok();
+        let mut commits_today: u32 = 0;
+        let mut last_commit_time: Option<DateTime<Local>> = None;
+        let mut all_commit_dates: HashSet<NaiveDate> = HashSet::new();
 
-            if revwalk.push_head().is_ok() {
-                let today = Local::now().date_naive();
-                let mut commit_dates: HashSet<NaiveDate> = HashSet::new();
-                let mut last_commit_time: Option<DateTime<Local>> = None;
+        for repo in &self.repos {
+            if let Ok(mut revwalk) = repo.revwalk() {
+                revwalk.set_sorting(Sort::TIME).ok();
 
-                for oid in revwalk.filter_map(|r| r.ok()) {
-                    if let Ok(commit) = repo.find_commit(oid) {
-                        let time = commit.time();
-                        let datetime = Utc
-                            .timestamp_opt(time.seconds(), 0)
-                            .single()
-                            .map(|dt| dt.with_timezone(&Local));
+                if revwalk.push_head().is_ok() {
+                    for oid in revwalk.filter_map(|r| r.ok()) {
+                        if let Ok(commit) = repo.find_commit(oid) {
+                            let time = commit.time();
+                            let datetime = Utc
+                                .timestamp_opt(time.seconds(), 0)
+                                .single()
+                                .map(|dt| dt.with_timezone(&Local));
 
-                        if let Some(dt) = datetime {
-                            let date = dt.date_naive();
+                            if let Some(dt) = datetime {
+                                let date = dt.date_naive();
 
-                            // Track last commit
-                            if last_commit_time.is_none() {
-                                last_commit_time = Some(dt);
+                                // Stop if older than 30 days
+                                if date < cutoff_date {
+                                    break;
+                                }
+
+                                // Track most recent commit across all repos
+                                if last_commit_time.is_none() || Some(dt) > last_commit_time {
+                                    last_commit_time = Some(dt);
+                                }
+
+                                // Count commits today
+                                if date == today {
+                                    commits_today += 1;
+                                }
+
+                                // Track all dates for streak calculation
+                                all_commit_dates.insert(date);
                             }
-
-                            // Count commits today
-                            if date == today {
-                                stats.commits_today += 1;
-                            }
-
-                            // Track all dates for streak calculation
-                            commit_dates.insert(date);
                         }
                     }
                 }
-
-                stats.last_commit = last_commit_time;
-                stats.current_streak = calculate_streak(&commit_dates, today);
             }
         }
 
-        stats
+        GitStats {
+            in_git_repo: true,
+            repo_count: self.repos.len(),
+            repo_names: self.repo_names(),
+            commits_today,
+            last_commit: last_commit_time,
+            current_streak: calculate_streak(&all_commit_dates, today),
+            ..Default::default()
+        }
     }
 
-    /// Get the path to the .git directory (for file watching)
-    pub fn git_dir(&self) -> Option<std::path::PathBuf> {
-        self.repo.as_ref().map(|r| r.path().to_path_buf())
+    /// Get the paths to all .git directories (for file watching)
+    pub fn git_dirs(&self) -> Vec<PathBuf> {
+        self.repos.iter().map(|r| r.path().to_path_buf()).collect()
     }
 }
 

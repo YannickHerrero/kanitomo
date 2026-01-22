@@ -28,13 +28,12 @@ pub struct App {
     pub should_quit: bool,
     /// Debug mode enables feed/punish controls
     pub debug_mode: bool,
+    /// Whether to show the repo list overlay
+    pub show_repo_list: bool,
     /// File watcher for git changes (kept alive to maintain watching)
-    #[allow(dead_code)]
-    watcher: Option<RecommendedWatcher>,
+    _watcher: Option<RecommendedWatcher>,
     /// Channel for receiving file change events
     watcher_rx: Option<Receiver<notify::Result<notify::Event>>>,
-    /// Last time we refreshed stats
-    last_stats_refresh: Instant,
     /// Last time we saved state
     last_save: Instant,
 }
@@ -54,26 +53,30 @@ impl App {
         // Create the crab with loaded happiness
         let crab = Crab::new((10.0, 2.0), app_state.happiness);
 
-        // Set up file watcher if in a git repo
-        let (watcher, watcher_rx) = if let Some(git_dir) = git_tracker.git_dir() {
+        // Set up file watcher for all git repos
+        let git_dirs = git_tracker.git_dirs();
+        let (watcher, watcher_rx) = if !git_dirs.is_empty() {
             let (tx, rx) = channel();
 
+            // Use event-based watching (no polling) for better performance
             let mut watcher = RecommendedWatcher::new(
                 move |res| {
                     let _ = tx.send(res);
                 },
-                Config::default().with_poll_interval(Duration::from_secs(1)),
+                Config::default(),
             )?;
 
-            // Watch the HEAD file for changes (indicates new commits)
-            let head_path = git_dir.join("HEAD");
-            let refs_path = git_dir.join("refs");
+            // Watch HEAD and refs for each repository
+            for git_dir in &git_dirs {
+                let head_path = git_dir.join("HEAD");
+                let refs_path = git_dir.join("refs");
 
-            if head_path.exists() {
-                watcher.watch(&head_path, RecursiveMode::NonRecursive).ok();
-            }
-            if refs_path.exists() {
-                watcher.watch(&refs_path, RecursiveMode::Recursive).ok();
+                if head_path.exists() {
+                    watcher.watch(&head_path, RecursiveMode::NonRecursive).ok();
+                }
+                if refs_path.exists() {
+                    watcher.watch(&refs_path, RecursiveMode::Recursive).ok();
+                }
             }
 
             (Some(watcher), Some(rx))
@@ -89,9 +92,9 @@ impl App {
             app_state,
             should_quit: false,
             debug_mode,
-            watcher,
+            show_repo_list: false,
+            _watcher: watcher,
             watcher_rx,
-            last_stats_refresh: Instant::now(),
             last_save: Instant::now(),
         })
     }
@@ -135,7 +138,17 @@ impl App {
     fn handle_key(&mut self, key: KeyCode) {
         match key {
             KeyCode::Char('q') | KeyCode::Esc => {
-                self.should_quit = true;
+                if self.show_repo_list {
+                    self.show_repo_list = false;
+                } else {
+                    self.should_quit = true;
+                }
+            }
+            KeyCode::Char('a') => {
+                // Toggle repo list view (only if tracking multiple repos)
+                if self.git_stats.repo_count > 1 {
+                    self.show_repo_list = !self.show_repo_list;
+                }
             }
             KeyCode::Char('r') => {
                 // Manual refresh
@@ -166,11 +179,6 @@ impl App {
 
         // Check for file system events (new commits)
         self.check_for_changes();
-
-        // Periodic stats refresh (every 30 seconds)
-        if self.last_stats_refresh.elapsed() > Duration::from_secs(30) {
-            self.refresh_stats();
-        }
 
         // Periodic save (every 60 seconds)
         if self.last_save.elapsed() > Duration::from_secs(60) {
@@ -223,7 +231,6 @@ impl App {
     fn refresh_stats(&mut self) {
         self.git_stats = self.git_tracker.get_stats();
         self.git_stats.best_streak = self.app_state.best_streak;
-        self.last_stats_refresh = Instant::now();
     }
 
     /// Save application state
@@ -256,6 +263,16 @@ impl App {
         widgets::render_title(frame, chunks[0]);
         widgets::render_crab(frame, &self.crab, chunks[1]);
         widgets::render_stats(frame, &self.git_stats, self.crab.happiness, chunks[2]);
-        widgets::render_help(frame, chunks[3], self.debug_mode);
+        widgets::render_help(
+            frame,
+            chunks[3],
+            self.debug_mode,
+            self.git_stats.repo_count > 1,
+        );
+
+        // Render repo list overlay if active
+        if self.show_repo_list {
+            widgets::render_repo_list(frame, &self.git_stats.repo_names, area);
+        }
     }
 }

@@ -89,12 +89,6 @@ impl StateManager {
 
         Ok(())
     }
-
-    /// Get the path to the state file
-    #[allow(dead_code)]
-    pub fn state_path(&self) -> &PathBuf {
-        &self.state_path
-    }
 }
 
 impl Default for StateManager {

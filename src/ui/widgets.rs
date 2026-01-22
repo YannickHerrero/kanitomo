@@ -1,10 +1,10 @@
 use crate::crab::Crab;
 use crate::git::GitStats;
 use ratatui::{
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
@@ -60,10 +60,22 @@ pub fn render_stats(frame: &mut Frame, stats: &GitStats, happiness: u8, area: Re
     ];
 
     if stats.in_git_repo {
-        if let Some(ref name) = stats.repo_name {
+        // Show repo info - single name or count for multiple
+        if stats.repo_count == 1 {
+            if let Some(name) = stats.repo_names.first() {
+                lines.push(Line::from(vec![
+                    Span::styled("  Repo: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(name.clone(), Style::default().fg(Color::Cyan)),
+                ]));
+            }
+        } else {
             lines.push(Line::from(vec![
-                Span::styled("  Repo: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(name.clone(), Style::default().fg(Color::Cyan)),
+                Span::styled("  Watching: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{} repos", stats.repo_count),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::styled(" [a]", Style::default().fg(Color::DarkGray)),
             ]));
         }
 
@@ -107,17 +119,17 @@ pub fn render_stats(frame: &mut Frame, stats: &GitStats, happiness: u8, area: Re
         ]));
     } else {
         lines.push(Line::from(vec![Span::styled(
-            "  No git repository",
+            "  No git repositories found",
             Style::default()
                 .fg(Color::DarkGray)
                 .add_modifier(Modifier::ITALIC),
         )]));
         lines.push(Line::from(vec![Span::styled(
-            "  Run in a git folder",
+            "  Run in a git folder or",
             Style::default().fg(Color::DarkGray),
         )]));
         lines.push(Line::from(vec![Span::styled(
-            "  to track commits!",
+            "  a folder with git projects",
             Style::default().fg(Color::DarkGray),
         )]));
     }
@@ -167,13 +179,20 @@ fn render_happiness_bar(happiness: u8) -> Line<'static> {
 }
 
 /// Render the help bar at the bottom
-pub fn render_help(frame: &mut Frame, area: Rect, debug_mode: bool) {
+pub fn render_help(frame: &mut Frame, area: Rect, debug_mode: bool, multi_repo: bool) {
     let mut spans = vec![
         Span::styled(" [q] ", Style::default().fg(Color::Yellow)),
         Span::styled("quit  ", Style::default().fg(Color::DarkGray)),
         Span::styled("[r] ", Style::default().fg(Color::Yellow)),
         Span::styled("refresh  ", Style::default().fg(Color::DarkGray)),
     ];
+
+    if multi_repo {
+        spans.extend([
+            Span::styled("[a] ", Style::default().fg(Color::Yellow)),
+            Span::styled("repos  ", Style::default().fg(Color::DarkGray)),
+        ]);
+    }
 
     if debug_mode {
         spans.extend([
@@ -204,4 +223,69 @@ pub fn render_title(frame: &mut Frame, area: Rect) {
 
     let paragraph = Paragraph::new(title).alignment(Alignment::Center);
     frame.render_widget(paragraph, area);
+}
+
+/// Render the repo list overlay
+pub fn render_repo_list(frame: &mut Frame, repo_names: &[String], area: Rect) {
+    // Calculate overlay size - center it in the screen
+    let overlay_width = 40.min(area.width.saturating_sub(4));
+    let overlay_height = (repo_names.len() as u16 + 4).min(area.height.saturating_sub(4));
+
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    // Clear the area behind the overlay
+    frame.render_widget(Clear, overlay_area);
+
+    // Build the list of repos
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    for name in repo_names {
+        lines.push(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled("  ", Style::default().fg(Color::Green)),
+            Span::styled(name.clone(), Style::default().fg(Color::White)),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [a] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Watched Repositories ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
+}
+
+/// Helper function to create a centered rect
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length((area.height.saturating_sub(height)) / 2),
+            Constraint::Length(height),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    let horizontal = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length((area.width.saturating_sub(width)) / 2),
+            Constraint::Length(width),
+            Constraint::Min(0),
+        ])
+        .split(vertical[1]);
+
+    horizontal[1]
 }

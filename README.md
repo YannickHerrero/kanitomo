@@ -23,6 +23,7 @@ So "Kanitomo" literally means "crab friend" - your little terminal companion tha
 ## Features
 
 - Watch Kani react to your git commits in real-time
+- **Multi-repo support** - Run in your dev folder to watch all projects at once
 - Happiness system that rewards consistent coding
 - Weekends off - Kani won't get sad while you rest
 - Persistent state - Kani remembers you between sessions
@@ -38,10 +39,18 @@ cargo install --path .
 Run `kanitomo` in any git repository:
 
 ```bash
+cd ~/projects/my-app
 kanitomo
 ```
 
-Kani will watch for new commits and respond with joy!
+Or run it in a parent folder to watch multiple repositories at once:
+
+```bash
+cd ~/projects
+kanitomo
+```
+
+Kani will automatically discover git repositories in immediate subdirectories and react to commits in any of them. Press `[a]` to see the list of watched repos.
 
 ## License
 
