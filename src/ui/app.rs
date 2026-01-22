@@ -26,6 +26,8 @@ pub struct App {
     pub app_state: AppState,
     /// Whether the app should quit
     pub should_quit: bool,
+    /// Debug mode enables feed/punish controls
+    pub debug_mode: bool,
     /// File watcher for git changes (kept alive to maintain watching)
     #[allow(dead_code)]
     watcher: Option<RecommendedWatcher>,
@@ -39,7 +41,7 @@ pub struct App {
 
 impl App {
     /// Create a new app instance
-    pub fn new() -> Result<Self> {
+    pub fn new(debug_mode: bool) -> Result<Self> {
         let state_manager = StateManager::new()?;
         let app_state = state_manager.load()?;
 
@@ -86,6 +88,7 @@ impl App {
             state_manager,
             app_state,
             should_quit: false,
+            debug_mode,
             watcher,
             watcher_rx,
             last_stats_refresh: Instant::now(),
@@ -138,14 +141,14 @@ impl App {
                 // Manual refresh
                 self.refresh_stats();
             }
-            KeyCode::Char('f') => {
-                // Manual feed (for debug/testing)
+            KeyCode::Char('f') if self.debug_mode => {
+                // Manual feed (debug only)
                 self.crab.boost_happiness(5);
                 self.crab.celebrate();
                 self.app_state.happiness = self.crab.happiness;
             }
-            KeyCode::Char('p') => {
-                // Punish (for debug/testing)
+            KeyCode::Char('p') if self.debug_mode => {
+                // Punish (debug only)
                 self.crab.decay_happiness(5);
                 self.app_state.happiness = self.crab.happiness;
             }
@@ -244,7 +247,7 @@ impl App {
             .constraints([
                 Constraint::Length(1),  // Title
                 Constraint::Min(8),     // Crab area
-                Constraint::Length(10), // Stats
+                Constraint::Length(12), // Stats
                 Constraint::Length(1),  // Help
             ])
             .split(area);
@@ -253,6 +256,6 @@ impl App {
         widgets::render_title(frame, chunks[0]);
         widgets::render_crab(frame, &self.crab, chunks[1]);
         widgets::render_stats(frame, &self.git_stats, self.crab.happiness, chunks[2]);
-        widgets::render_help(frame, chunks[3]);
+        widgets::render_help(frame, chunks[3], self.debug_mode);
     }
 }

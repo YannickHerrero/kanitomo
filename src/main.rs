@@ -9,11 +9,16 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::prelude::*;
+use std::env;
 use std::io::{self, stdout};
 
 use ui::App;
 
 fn main() -> Result<()> {
+    // Parse command line arguments
+    let args: Vec<String> = env::args().collect();
+    let debug_mode = args.iter().any(|arg| arg == "--debug" || arg == "-d");
+
     // Set up terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -23,7 +28,7 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Create and run app
-    let result = run_app(&mut terminal);
+    let result = run_app(&mut terminal, debug_mode);
 
     // Restore terminal
     disable_raw_mode()?;
@@ -39,8 +44,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
-    let mut app = App::new()?;
+fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, debug_mode: bool) -> Result<()> {
+    let mut app = App::new(debug_mode)?;
     app.run(terminal)?;
     Ok(())
 }
