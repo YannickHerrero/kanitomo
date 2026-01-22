@@ -8,81 +8,96 @@ pub enum Direction {
     Right,
 }
 
-/// Animation frames for different moods and directions
-pub struct CrabFrames;
+/// Eye expressions for different moods
+pub struct Eyes;
 
-impl CrabFrames {
-    // Standard pose facing right
-    pub const STANDARD_RIGHT: &'static str = r#"    _~^~^~_
-\) /  o o  \ (/
-  '_   -   _'
+impl Eyes {
+    pub const NEUTRAL: &'static str = "o o";
+    pub const HAPPY: &'static str = "^ ^";
+    pub const SAD: &'static str = "- -";
+    pub const HUNGRY: &'static str = "T T";
+    pub const ECSTATIC: &'static str = "* *";
+}
+
+/// Mouth expressions for different moods
+pub struct Mouths;
+
+impl Mouths {
+    pub const NEUTRAL: &'static str = "-";
+    pub const HAPPY: &'static str = "u";
+    pub const SAD: &'static str = "n";
+    pub const HUNGRY: &'static str = "~";
+    pub const ECSTATIC: &'static str = "w";
+}
+
+/// Body pose templates with {eyes} and {mouth} placeholders
+pub struct BodyTemplates;
+
+impl BodyTemplates {
+    // Standing pose facing right
+    pub const STANDING_RIGHT: &'static str = r#"    _~^~^~_
+\) /  {eyes}  \ (/
+  '_   {mouth}   _'
   \ '-----' /"#;
 
-    // Walking pose facing right
+    // Standing pose facing left
+    pub const STANDING_LEFT: &'static str = r#"    _~^~^~_
+(\ /  {eyes}  \ ()
+  '_   {mouth}   _'
+  / '-----' \"#;
+
+    // Walking pose facing right (legs offset)
     pub const WALKING_RIGHT: &'static str = r#"    _~^~^~_
-\) /  o o  \ (/
- '-_   -   _'\
-  | '-----' "#;
+\) /  {eyes}  \ (/
+  '_   {mouth}   _'
+ / '-----' \"#;
 
-    // Happy/clapping pose facing right
-    pub const HAPPY_RIGHT: &'static str = r#"    _~^~^~_
-\/ /  ^ ^  \ \/
-   '_   u   _'
-   \ '-----' /"#;
-
-    // Sad pose facing right
-    pub const SAD_RIGHT: &'static str = r#"    _~^~^~_
-\) /  - -  \ (/
-  '_   n   _'
-  \ '-----' /"#;
-
-    // Hungry/begging pose facing right
-    pub const HUNGRY_RIGHT: &'static str = r#"    _~^~^~_
-\\ /  T T  \ //
-  '_   ~   _'
-  \ '-----' /"#;
-
-    // Standard pose facing left
-    pub const STANDARD_LEFT: &'static str = r#"    _~^~^~_
-(\ /  o o  \ ()
-  '_   -   _'
-  / '-----' \"#;
-
-    // Walking pose facing left
+    // Walking pose facing left (legs offset)
     pub const WALKING_LEFT: &'static str = r#"    _~^~^~_
-(\ /  o o  \ ()
- /'_   -   _-'
-    '-----' |"#;
+(\ /  {eyes}  \ ()
+  '_   {mouth}   _'
+  \ '-----' /"#;
 
-    // Happy/clapping pose facing left
-    pub const HAPPY_LEFT: &'static str = r#"    _~^~^~_
-\/ /  ^ ^  \ \/
-   '_   u   _'
-   / '-----' \"#;
+    // Happy/clapping pose facing right (arms up)
+    pub const CLAPPING_RIGHT: &'static str = r#"    _~^~^~_
+\/ /  {eyes}  \ \/
+  '_   {mouth}   _'
+  \ '-----' /"#;
 
-    // Sad pose facing left
-    pub const SAD_LEFT: &'static str = r#"    _~^~^~_
-(\ /  - -  \ ()
-  '_   n   _'
+    // Happy/clapping pose facing left (arms up)
+    pub const CLAPPING_LEFT: &'static str = r#"    _~^~^~_
+/\ /  {eyes}  \ /\
+  '_   {mouth}   _'
   / '-----' \"#;
 
-    // Hungry/begging pose facing left
-    pub const HUNGRY_LEFT: &'static str = r#"    _~^~^~_
-// /  T T  \ \\
-  '_   ~   _'
+    // Hungry/begging pose facing right (arms raised)
+    pub const BEGGING_RIGHT: &'static str = r#"    _~^~^~_
+\\ /  {eyes}  \ //
+  '_   {mouth}   _'
+  \ '-----' /"#;
+
+    // Hungry/begging pose facing left (arms raised)
+    pub const BEGGING_LEFT: &'static str = r#"    _~^~^~_
+// /  {eyes}  \ \\
+  '_   {mouth}   _'
   / '-----' \"#;
 
     // Ecstatic dance frame 1
     pub const ECSTATIC_1: &'static str = r#"   \\_~^~^~_//
-    /  * *  \
-   '_    w    _'
+    /  {eyes}  \
+   '_   {mouth}   _'
    \\ '-----' //"#;
 
     // Ecstatic dance frame 2
     pub const ECSTATIC_2: &'static str = r#"  //_~^~^~_\\
-    /  * *  \
-   '_    w    _'
+    /  {eyes}  \
+   '_   {mouth}   _'
    // '-----' \\"#;
+}
+
+/// Helper to build a frame from a body template and face components
+pub fn build_frame(body: &str, eyes: &str, mouth: &str) -> String {
+    body.replace("{eyes}", eyes).replace("{mouth}", mouth)
 }
 
 /// The main crab entity with position, animation state, and mood
@@ -223,93 +238,109 @@ impl Crab {
     }
 
     /// Get the current animation frame as a string
-    pub fn get_frame(&self) -> &'static str {
-        // If celebrating, use ecstatic frames
-        if self.celebrating || self.mood == Mood::Ecstatic {
-            return if self.frame_index % 2 == 0 {
-                CrabFrames::ECSTATIC_1
-            } else {
-                CrabFrames::ECSTATIC_2
-            };
-        }
-
+    pub fn get_frame(&self) -> String {
         let is_moving = self.velocity.0.abs() > 0.05 || self.velocity.1.abs() > 0.05;
 
-        match self.mood {
+        // If celebrating or ecstatic, use ecstatic frames
+        if self.celebrating || self.mood == Mood::Ecstatic {
+            let body = if self.frame_index % 2 == 0 {
+                BodyTemplates::ECSTATIC_1
+            } else {
+                BodyTemplates::ECSTATIC_2
+            };
+            return build_frame(body, Eyes::ECSTATIC, Mouths::ECSTATIC);
+        }
+
+        // Determine eyes and mouth based on mood
+        let (eyes, mouth) = match self.mood {
+            Mood::Ecstatic => (Eyes::ECSTATIC, Mouths::ECSTATIC),
+            Mood::Happy => (Eyes::HAPPY, Mouths::HAPPY),
+            Mood::Neutral => (Eyes::NEUTRAL, Mouths::NEUTRAL),
+            Mood::Sad => (Eyes::SAD, Mouths::SAD),
+            Mood::Hungry => (Eyes::HUNGRY, Mouths::HUNGRY),
+        };
+
+        // Determine body pose based on mood and movement
+        let body = match self.mood {
             Mood::Ecstatic => {
+                // Already handled above, but for completeness
                 if self.frame_index % 2 == 0 {
-                    CrabFrames::ECSTATIC_1
+                    BodyTemplates::ECSTATIC_1
                 } else {
-                    CrabFrames::ECSTATIC_2
+                    BodyTemplates::ECSTATIC_2
                 }
             }
             Mood::Happy => {
                 if is_moving {
+                    // Walking animation
                     if self.direction == Direction::Right {
                         if self.frame_index % 2 == 0 {
-                            CrabFrames::STANDARD_RIGHT
+                            BodyTemplates::STANDING_RIGHT
                         } else {
-                            CrabFrames::WALKING_RIGHT
+                            BodyTemplates::WALKING_RIGHT
                         }
                     } else if self.frame_index % 2 == 0 {
-                        CrabFrames::STANDARD_LEFT
+                        BodyTemplates::STANDING_LEFT
                     } else {
-                        CrabFrames::WALKING_LEFT
+                        BodyTemplates::WALKING_LEFT
                     }
                 } else if self.frame_index % 4 == 0 {
                     // Occasional happy clap when idle
                     if self.direction == Direction::Right {
-                        CrabFrames::HAPPY_RIGHT
+                        BodyTemplates::CLAPPING_RIGHT
                     } else {
-                        CrabFrames::HAPPY_LEFT
+                        BodyTemplates::CLAPPING_LEFT
                     }
                 } else if self.direction == Direction::Right {
-                    CrabFrames::STANDARD_RIGHT
+                    BodyTemplates::STANDING_RIGHT
                 } else {
-                    CrabFrames::STANDARD_LEFT
+                    BodyTemplates::STANDING_LEFT
                 }
             }
             Mood::Neutral => {
                 if is_moving {
                     if self.direction == Direction::Right {
                         if self.frame_index % 2 == 0 {
-                            CrabFrames::STANDARD_RIGHT
+                            BodyTemplates::STANDING_RIGHT
                         } else {
-                            CrabFrames::WALKING_RIGHT
+                            BodyTemplates::WALKING_RIGHT
                         }
                     } else if self.frame_index % 2 == 0 {
-                        CrabFrames::STANDARD_LEFT
+                        BodyTemplates::STANDING_LEFT
                     } else {
-                        CrabFrames::WALKING_LEFT
+                        BodyTemplates::WALKING_LEFT
                     }
                 } else if self.direction == Direction::Right {
-                    CrabFrames::STANDARD_RIGHT
+                    BodyTemplates::STANDING_RIGHT
                 } else {
-                    CrabFrames::STANDARD_LEFT
+                    BodyTemplates::STANDING_LEFT
                 }
             }
             Mood::Sad => {
+                // Sad crab doesn't move much, just stands
                 if self.direction == Direction::Right {
-                    CrabFrames::SAD_RIGHT
+                    BodyTemplates::STANDING_RIGHT
                 } else {
-                    CrabFrames::SAD_LEFT
+                    BodyTemplates::STANDING_LEFT
                 }
             }
             Mood::Hungry => {
-                // Alternate between sad and hungry for begging effect
+                // Alternate between standing and begging for effect
                 if self.frame_index % 2 == 0 {
                     if self.direction == Direction::Right {
-                        CrabFrames::HUNGRY_RIGHT
+                        BodyTemplates::BEGGING_RIGHT
                     } else {
-                        CrabFrames::HUNGRY_LEFT
+                        BodyTemplates::BEGGING_LEFT
                     }
                 } else if self.direction == Direction::Right {
-                    CrabFrames::SAD_RIGHT
+                    BodyTemplates::STANDING_RIGHT
                 } else {
-                    CrabFrames::SAD_LEFT
+                    BodyTemplates::STANDING_LEFT
                 }
             }
-        }
+        };
+
+        build_frame(body, eyes, mouth)
     }
 
     /// Trigger celebration (e.g., when a new commit is detected)
