@@ -26,9 +26,9 @@ impl CrabFrames {
 
     // Happy/clapping pose facing right
     pub const HAPPY_RIGHT: &'static str = r#"    _~^~^~_
-\/ /  ^o o^  \ \/
-  '_   u   _'
-  \ '-----' /"#;
+\/ /  ^ ^  \ \/
+   '_   u   _'
+   \ '-----' /"#;
 
     // Sad pose facing right
     pub const SAD_RIGHT: &'static str = r#"    _~^~^~_
@@ -56,9 +56,9 @@ impl CrabFrames {
 
     // Happy/clapping pose facing left
     pub const HAPPY_LEFT: &'static str = r#"    _~^~^~_
-\/ /  ^o o^  \ \/
-  '_   u   _'
-  / '-----' \"#;
+\/ /  ^ ^  \ \/
+   '_   u   _'
+   / '-----' \"#;
 
     // Sad pose facing left
     pub const SAD_LEFT: &'static str = r#"    _~^~^~_
@@ -74,15 +74,15 @@ impl CrabFrames {
 
     // Ecstatic dance frame 1
     pub const ECSTATIC_1: &'static str = r#"   \\_~^~^~_//
-   /  *o o*  \
-  '_    w    _'
-  \\ '-----' //"#;
+    /  * *  \
+   '_    w    _'
+   \\ '-----' //"#;
 
     // Ecstatic dance frame 2
     pub const ECSTATIC_2: &'static str = r#"  //_~^~^~_\\
-   /  *o o*  \
-  '_    w    _'
-  // '-----' \\"#;
+    /  * *  \
+   '_    w    _'
+   // '-----' \\"#;
 }
 
 /// The main crab entity with position, animation state, and mood
