@@ -113,10 +113,7 @@ fn calculate_decay(last_seen: DateTime<Local>, now: DateTime<Local>) -> u8 {
     // This means after 10 hours of not committing, you'd lose 50 happiness
     // But weekends are free!
     let decay_per_hour = 5.0;
-    let total_decay = (weekday_hours as f32 * decay_per_hour) as u8;
-
-    // Cap decay at a maximum so the crab doesn't instantly die
-    total_decay.min(80)
+    (weekday_hours as f32 * decay_per_hour) as u8
 }
 
 /// Count the number of weekday hours between two times
