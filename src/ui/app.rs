@@ -211,20 +211,11 @@ impl App {
         }
     }
 
-    /// Refresh git statistics
+    /// Refresh git statistics (display only, no happiness changes)
     fn refresh_stats(&mut self) {
         self.git_stats = self.git_tracker.get_stats();
         self.git_stats.best_streak = self.app_state.best_streak;
         self.last_stats_refresh = Instant::now();
-
-        // Boost happiness based on commits today
-        if self.git_stats.commits_today > 0 {
-            let bonus = (self.git_stats.commits_today as u8)
-                .saturating_mul(5)
-                .min(30);
-            self.crab.happiness = self.crab.happiness.saturating_add(bonus).min(100);
-            self.app_state.happiness = self.crab.happiness;
-        }
     }
 
     /// Save application state
