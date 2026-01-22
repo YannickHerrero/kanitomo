@@ -2,6 +2,12 @@
 
 A terminal pet crab that thrives on your git commits.
 
+## Demo
+
+![Kanitomo Demo](assets/preview.png)
+
+*Meet Kani, your new coding companion. Feed them commits and watch them thrive!*
+
 ## About the Name
 
 The name "Kanitomo" is inspired by [Tamagotchi](https://en.wikipedia.org/wiki/Tamagotchi), the famous virtual pet from the 90s. "Tamagotchi" is a portmanteau of two Japanese words:
