@@ -22,10 +22,10 @@ So "Kanitomo" literally means "crab friend" - your little terminal companion tha
 
 ## Features
 
-- Watch your crab react to your git commits in real-time
+- Watch Kani react to your git commits in real-time
 - Happiness system that rewards consistent coding
-- Weekends off - your crab won't get sad while you rest
-- Persistent state - your crab remembers you between sessions
+- Weekends off - Kani won't get sad while you rest
+- Persistent state - Kani remembers you between sessions
 
 ## Installation
 
@@ -41,7 +41,7 @@ Run `kanitomo` in any git repository:
 kanitomo
 ```
 
-Your crab will watch for new commits and respond with joy!
+Kani will watch for new commits and respond with joy!
 
 ## License
 
