@@ -47,10 +47,10 @@ impl StateManager {
         let state_dir = dirs::data_local_dir()
             .or_else(dirs::home_dir)
             .context("Could not find home directory")?
-            .join(".crabagochi");
+            .join(".kanitomo");
 
         // Create directory if it doesn't exist
-        fs::create_dir_all(&state_dir).context("Failed to create crabagochi data directory")?;
+        fs::create_dir_all(&state_dir).context("Failed to create kanitomo data directory")?;
 
         let state_path = state_dir.join("state.json");
 

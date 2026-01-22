@@ -188,7 +188,7 @@ pub fn render_title(frame: &mut Frame, area: Rect) {
     let title = Line::from(vec![
         Span::styled(" 🦀 ", Style::default().fg(Color::Red)),
         Span::styled(
-            "Crabagochi",
+            "Kanitomo",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),

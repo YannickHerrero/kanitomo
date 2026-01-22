@@ -1,5 +1,5 @@
 [package]
-name = "crabagochi"
+name = "kanitomo"
 version = "0.1.0"
 edition = "2021"
 description = "A terminal pet crab that thrives on your git commits"
