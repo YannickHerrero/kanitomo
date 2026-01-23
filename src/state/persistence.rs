@@ -255,7 +255,8 @@ pub fn get_today_by_project(history: &[TrackedCommit]) -> Vec<(String, String, u
         .into_iter()
         .map(|(id, (name, count))| (id, name, count))
         .collect();
-    result.sort_by(|a, b| b.2.cmp(&a.2)); // Sort by count descending
+    // Sort by count descending, then by name ascending for stable ordering
+    result.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.1.cmp(&b.1)));
     result
 }
 
