@@ -456,18 +456,6 @@ impl Crab {
         self.celebration_timer = 3.0; // 3 seconds of celebration
     }
 
-    /// Boost happiness (e.g., from a commit)
-    pub fn boost_happiness(&mut self, amount: u8) {
-        self.happiness = self.happiness.saturating_add(amount).min(100);
-        self.mood = Mood::from_happiness(self.happiness);
-    }
-
-    /// Decay happiness over time
-    pub fn decay_happiness(&mut self, amount: u8) {
-        self.happiness = self.happiness.saturating_sub(amount);
-        self.mood = Mood::from_happiness(self.happiness);
-    }
-
     /// Get the crab's color based on mood
     pub fn color(&self) -> ratatui::style::Color {
         use ratatui::style::Color;

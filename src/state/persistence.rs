@@ -103,12 +103,12 @@ impl StateManager {
         let mut state: AppState =
             serde_json::from_str(&contents).context("Failed to parse state file")?;
 
-        // Apply decay based on time passed
-        let decay = calculate_decay(state.last_seen, Local::now());
-        state.happiness = state.happiness.saturating_sub(decay);
-
         // Recalculate streak from history (may have broken since last session)
         state.current_streak = calculate_streak_from_history(&state.commit_history);
+
+        // Update happiness based on today's commit count
+        let today_commits = get_today_commit_count(&state.commit_history);
+        state.happiness = calculate_happiness_from_commits(today_commits);
 
         // Check if we should rotate ground style (new week)
         let current_week = Local::now().iso_week().week();
@@ -150,51 +150,39 @@ impl Default for StateManager {
     }
 }
 
-/// Calculate happiness decay based on time elapsed
-/// Weekends don't count towards decay
-fn calculate_decay(last_seen: DateTime<Local>, now: DateTime<Local>) -> u8 {
-    // Count weekday hours that have passed
-    let weekday_hours = count_weekday_hours(last_seen, now);
-
-    // Decay rate: lose ~5 happiness per hour of weekday time
-    // This means after 10 hours of not committing, you'd lose 50 happiness
-    // But weekends are free!
-    let decay_per_hour = 5.0;
-    (weekday_hours as f32 * decay_per_hour) as u8
-}
-
-/// Count the number of weekday hours between two times
-fn count_weekday_hours(start: DateTime<Local>, end: DateTime<Local>) -> u64 {
-    if end <= start {
-        return 0;
-    }
-
-    let mut hours = 0u64;
-    let mut current = start;
-
-    // Iterate through each hour
-    while current < end {
-        let weekday = current.weekday();
-
-        // Only count weekday hours (Monday = 0 through Friday = 4)
-        if !is_weekend(weekday) {
-            hours += 1;
-        }
-
-        current += Duration::hours(1);
-
-        // Safety: prevent infinite loops on very large time spans
-        if hours > 10000 {
-            break;
-        }
-    }
-
-    hours
-}
-
 /// Check if a weekday is a weekend day
 fn is_weekend(weekday: Weekday) -> bool {
     matches!(weekday, Weekday::Sat | Weekday::Sun)
+}
+
+/// Get total commits for today across all projects
+pub fn get_today_commit_count(history: &[TrackedCommit]) -> u32 {
+    let today = Local::now().date_naive();
+    history
+        .iter()
+        .filter(|commit| commit.timestamp.date_naive() == today)
+        .count() as u32
+}
+
+/// Calculate happiness from today's commit count
+pub fn calculate_happiness_from_commits(commits: u32) -> u8 {
+    const MAX_COMMITS: f32 = 20.0;
+    const CURVE_STEEPNESS: f32 = 4.0;
+
+    if commits == 0 {
+        return 0;
+    }
+
+    let capped = (commits as f32).min(MAX_COMMITS);
+    let x = capped / MAX_COMMITS;
+    let numerator = 1.0 - (-CURVE_STEEPNESS * x).exp();
+    let denominator = 1.0 - (-CURVE_STEEPNESS).exp();
+    let normalized = if denominator > 0.0 {
+        numerator / denominator
+    } else {
+        0.0
+    };
+    (normalized * 100.0).round().clamp(0.0, 100.0) as u8
 }
 
 /// Calculate streak from commit history
@@ -309,33 +297,22 @@ mod tests {
     use chrono::TimeZone;
 
     #[test]
-    fn test_weekend_no_decay() {
-        // Saturday 10am to Sunday 10pm = 0 weekday hours
-        let start = Local.with_ymd_and_hms(2026, 1, 24, 10, 0, 0).unwrap(); // Saturday
-        let end = Local.with_ymd_and_hms(2026, 1, 25, 22, 0, 0).unwrap(); // Sunday
-
-        let hours = count_weekday_hours(start, end);
-        assert_eq!(hours, 0);
+    fn test_happiness_curve_points() {
+        assert_eq!(calculate_happiness_from_commits(0), 0);
+        assert_eq!(calculate_happiness_from_commits(2), 34);
+        assert_eq!(calculate_happiness_from_commits(5), 64);
+        assert_eq!(calculate_happiness_from_commits(10), 88);
+        assert_eq!(calculate_happiness_from_commits(15), 97);
+        assert_eq!(calculate_happiness_from_commits(20), 100);
+        assert_eq!(calculate_happiness_from_commits(25), 100);
     }
 
     #[test]
-    fn test_weekday_decay() {
-        // Monday 9am to Monday 5pm = 8 weekday hours
-        let start = Local.with_ymd_and_hms(2026, 1, 19, 9, 0, 0).unwrap(); // Monday
-        let end = Local.with_ymd_and_hms(2026, 1, 19, 17, 0, 0).unwrap(); // Monday
-
-        let hours = count_weekday_hours(start, end);
-        assert_eq!(hours, 8);
-    }
-
-    #[test]
-    fn test_decay_calculation() {
-        // 10 weekday hours = 50 decay
-        let start = Local.with_ymd_and_hms(2026, 1, 19, 8, 0, 0).unwrap();
-        let end = Local.with_ymd_and_hms(2026, 1, 19, 18, 0, 0).unwrap();
-
-        let decay = calculate_decay(start, end);
-        assert_eq!(decay, 50);
+    fn test_happiness_curve_interpolation() {
+        assert_eq!(calculate_happiness_from_commits(1), 18);
+        assert_eq!(calculate_happiness_from_commits(8), 81);
+        assert_eq!(calculate_happiness_from_commits(12), 93);
+        assert_eq!(calculate_happiness_from_commits(16), 98);
     }
 
     fn make_commit(date: DateTime<Local>) -> TrackedCommit {

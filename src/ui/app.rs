@@ -1,7 +1,10 @@
 use crate::crab::{Crab, Mood};
 use crate::environment::Environment;
 use crate::git::{DetectedCommit, GitStats, GitTracker};
-use crate::state::{calculate_streak_from_history, AppState, StateManager, TrackedCommit};
+use crate::state::{
+    calculate_happiness_from_commits, calculate_streak_from_history, get_today_commit_count,
+    AppState, StateManager, TrackedCommit,
+};
 use crate::ui::{messages, widgets};
 use anyhow::Result;
 use chrono::Local;
@@ -200,14 +203,33 @@ impl App {
             }
             KeyCode::Char('f') if self.debug_mode => {
                 // Manual feed (debug only)
-                self.crab.boost_happiness(5);
+                let timestamp = Local::now();
+                let tracked = TrackedCommit {
+                    timestamp,
+                    commit_hash: format!("debug-{}", timestamp.timestamp()),
+                    project_id: "debug".to_string(),
+                    project_name: "debug".to_string(),
+                };
+                self.app_state.commit_history.push(tracked);
+                self.app_state.last_commit_time = Some(timestamp);
+                self.sync_happiness_from_commits();
                 self.crab.celebrate();
-                self.app_state.happiness = self.crab.happiness;
+                self.set_temp_message("Debug feed: +1 commit");
             }
             KeyCode::Char('p') if self.debug_mode => {
                 // Punish (debug only)
-                self.crab.decay_happiness(5);
-                self.app_state.happiness = self.crab.happiness;
+                let today = Local::now().date_naive();
+                if let Some(index) = self
+                    .app_state
+                    .commit_history
+                    .iter()
+                    .rposition(|commit| commit.timestamp.date_naive() == today)
+                {
+                    self.app_state.commit_history.remove(index);
+                    self.sync_last_commit_time();
+                    self.sync_happiness_from_commits();
+                    self.set_temp_message("Debug punish: -1 commit");
+                }
             }
             KeyCode::Char('s') => {
                 // Toggle stats panel
@@ -243,6 +265,9 @@ impl App {
 
         // Check for file system events (new commits)
         self.check_for_changes();
+
+        // Sync happiness based on today's commit count
+        self.sync_happiness_from_commits();
 
         // Check for mood changes
         self.check_mood_change();
@@ -321,12 +346,9 @@ impl App {
             self.app_state.best_streak = self.app_state.current_streak;
         }
 
-        // Boost happiness significantly
-        self.crab.boost_happiness(25);
         self.crab.celebrate();
 
         // Update app state
-        self.app_state.happiness = self.crab.happiness;
         self.app_state.total_commits_tracked += 1;
 
         // Show a commit reaction message for 30 seconds
@@ -388,6 +410,23 @@ impl App {
     /// Refresh git statistics (basic repo info)
     fn refresh_stats(&mut self) {
         self.git_stats = self.git_tracker.get_stats();
+    }
+
+    /// Sync happiness based on today's commit count
+    fn sync_happiness_from_commits(&mut self) {
+        let commits_today = get_today_commit_count(&self.app_state.commit_history);
+        let happiness = calculate_happiness_from_commits(commits_today);
+        self.crab.happiness = happiness;
+        self.app_state.happiness = happiness;
+    }
+
+    fn sync_last_commit_time(&mut self) {
+        self.app_state.last_commit_time = self
+            .app_state
+            .commit_history
+            .iter()
+            .map(|commit| commit.timestamp)
+            .max();
     }
 
     /// Save application state
