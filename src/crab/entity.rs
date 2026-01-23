@@ -50,7 +50,7 @@ impl BodyTemplates {
     pub const WALKING_RIGHT: &'static str = r#"    _~^~^~_
 \) /  {eyes}  \ (/
   '_   {mouth}   _'
- / '-----' \"#;
+  / '-----' \"#;
 
     // Walking pose facing left (legs offset)
     pub const WALKING_LEFT: &'static str = r#"    _~^~^~_
@@ -66,7 +66,7 @@ impl BodyTemplates {
 
     // Happy/clapping pose facing left (arms up)
     pub const CLAPPING_LEFT: &'static str = r#"    _~^~^~_
-/\ /  {eyes}  \ /\
+|| /  {eyes}  \ ||
   '_   {mouth}   _'
   / '-----' \"#;
 
@@ -83,16 +83,16 @@ impl BodyTemplates {
   / '-----' \"#;
 
     // Ecstatic dance frame 1
-    pub const ECSTATIC_1: &'static str = r#"   \\_~^~^~_//
+    pub const ECSTATIC_1: &'static str = r#"   ()_~^~^~_()
     /  {eyes}  \
    '_   {mouth}   _'
-   \\ '-----' //"#;
+  \\ '-----' //"#;
 
     // Ecstatic dance frame 2
-    pub const ECSTATIC_2: &'static str = r#"  //_~^~^~_\\
+    pub const ECSTATIC_2: &'static str = r#"   \/_~^~^~_\/
     /  {eyes}  \
    '_   {mouth}   _'
-   // '-----' \\"#;
+  // '-----' \\"#;
 }
 
 /// Helper to build a frame from a body template and face components
@@ -122,6 +122,8 @@ pub struct Crab {
     celebration_timer: f32,
     /// Random number generator
     rng: rand::rngs::ThreadRng,
+    /// Whether movement is frozen (animation still plays)
+    pub movement_frozen: bool,
 }
 
 impl Crab {
@@ -145,6 +147,7 @@ impl Crab {
             celebrating: false,
             celebration_timer: 0.0,
             rng,
+            movement_frozen: false,
         }
     }
 
@@ -173,6 +176,11 @@ impl Crab {
         if self.animation_timer >= 0.3 {
             self.animation_timer = 0.0;
             self.frame_index = (self.frame_index + 1) % 4;
+        }
+
+        // Skip movement when frozen
+        if self.movement_frozen {
+            return;
         }
 
         // Movement based on mood

@@ -224,6 +224,8 @@ pub fn render_help(frame: &mut Frame, area: Rect, debug_mode: bool, multi_repo: 
             Span::styled("feed  ", Style::default().fg(Color::DarkGray)),
             Span::styled("[p] ", Style::default().fg(Color::Yellow)),
             Span::styled("punish  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("[s] ", Style::default().fg(Color::Yellow)),
+            Span::styled("freeze  ", Style::default().fg(Color::DarkGray)),
         ]);
     }
 

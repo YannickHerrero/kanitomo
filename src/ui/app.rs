@@ -192,6 +192,10 @@ impl App {
                 self.crab.decay_happiness(5);
                 self.app_state.happiness = self.crab.happiness;
             }
+            KeyCode::Char('s') if self.debug_mode => {
+                // Toggle movement freeze (debug only)
+                self.crab.movement_frozen = !self.crab.movement_frozen;
+            }
             _ => {}
         }
     }
