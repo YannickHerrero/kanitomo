@@ -36,6 +36,12 @@ So "Kanitomo" literally means "crab friend" - your little terminal companion tha
 cargo install --path .
 ```
 
+Or install directly from GitHub:
+
+```bash
+cargo install --git https://github.com/YannickHerrero/kanitomo
+```
+
 ## Usage
 
 Run `kanitomo` in any git repository:
