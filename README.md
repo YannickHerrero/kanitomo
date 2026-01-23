@@ -71,6 +71,7 @@ Run with `--debug` to enable:
 |-----|--------|
 | `f` | Feed Kani |
 | `p` | Punish Kani |
+| `c` | Toggle fast cycle |
 | `x` | Freeze movement |
 
 ### Reset Stats
