@@ -34,6 +34,8 @@ pub struct App {
     pub show_repo_list: bool,
     /// Whether to show the details overlay
     pub show_details: bool,
+    /// Whether to show the stats panel
+    pub show_stats: bool,
     /// File watcher for git changes (kept alive to maintain watching)
     _watcher: Option<RecommendedWatcher>,
     /// Channel for receiving file change events
@@ -118,6 +120,7 @@ impl App {
             debug_mode,
             show_repo_list: false,
             show_details: false,
+            show_stats: true,
             _watcher: watcher,
             watcher_rx,
             last_save: Instant::now(),
@@ -206,7 +209,11 @@ impl App {
                 self.crab.decay_happiness(5);
                 self.app_state.happiness = self.crab.happiness;
             }
-            KeyCode::Char('s') if self.debug_mode => {
+            KeyCode::Char('s') => {
+                // Toggle stats panel
+                self.show_stats = !self.show_stats;
+            }
+            KeyCode::Char('x') if self.debug_mode => {
                 // Toggle movement freeze (debug only)
                 self.crab.movement_frozen = !self.crab.movement_frozen;
             }
@@ -394,16 +401,27 @@ impl App {
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
-        // Layout: Title | Crab Area | Stats | Help
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),  // Title
-                Constraint::Min(8),     // Crab area
-                Constraint::Length(12), // Stats
-                Constraint::Length(1),  // Help
-            ])
-            .split(area);
+        // Layout: Title | Crab Area | Stats (optional) | Help
+        let chunks = if self.show_stats {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(1),  // Title
+                    Constraint::Min(8),     // Crab area
+                    Constraint::Length(12), // Stats
+                    Constraint::Length(1),  // Help
+                ])
+                .split(area)
+        } else {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(1), // Title
+                    Constraint::Min(8),    // Crab area
+                    Constraint::Length(1), // Help
+                ])
+                .split(area)
+        };
 
         let crab_area = chunks[1];
 
@@ -435,21 +453,25 @@ impl App {
         // 4. Ground line (at bottom of crab area)
         widgets::render_ground(frame, &self.environment, crab_area);
 
-        // 5. Stats panel
-        widgets::render_stats(
-            frame,
-            &self.git_stats,
-            &self.app_state,
-            self.crab.happiness,
-            chunks[2],
-        );
+        if self.show_stats {
+            // 5. Stats panel
+            widgets::render_stats(
+                frame,
+                &self.git_stats,
+                &self.app_state,
+                self.crab.happiness,
+                chunks[2],
+            );
+        }
 
+        let help_area = chunks[chunks.len() - 1];
         // 7. Help bar
         widgets::render_help(
             frame,
-            chunks[3],
+            help_area,
             self.debug_mode,
             self.git_stats.repo_count > 1,
+            self.show_stats,
         );
 
         // Render overlays

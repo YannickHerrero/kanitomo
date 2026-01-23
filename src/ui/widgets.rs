@@ -364,7 +364,13 @@ fn render_happiness_bar(happiness: u8) -> Line<'static> {
 }
 
 /// Render the help bar at the bottom
-pub fn render_help(frame: &mut Frame, area: Rect, debug_mode: bool, multi_repo: bool) {
+pub fn render_help(
+    frame: &mut Frame,
+    area: Rect,
+    debug_mode: bool,
+    multi_repo: bool,
+    show_stats: bool,
+) {
     let mut spans = vec![
         Span::styled(" [q] ", Style::default().fg(Color::Yellow)),
         Span::styled("quit  ", Style::default().fg(Color::DarkGray)),
@@ -372,6 +378,15 @@ pub fn render_help(frame: &mut Frame, area: Rect, debug_mode: bool, multi_repo: 
         Span::styled("refresh  ", Style::default().fg(Color::DarkGray)),
         Span::styled("[d] ", Style::default().fg(Color::Yellow)),
         Span::styled("details  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("[s] ", Style::default().fg(Color::Yellow)),
+        Span::styled(
+            if show_stats {
+                "hide stats  "
+            } else {
+                "show stats  "
+            },
+            Style::default().fg(Color::DarkGray),
+        ),
     ];
 
     if multi_repo {
@@ -387,7 +402,7 @@ pub fn render_help(frame: &mut Frame, area: Rect, debug_mode: bool, multi_repo: 
             Span::styled("feed  ", Style::default().fg(Color::DarkGray)),
             Span::styled("[p] ", Style::default().fg(Color::Yellow)),
             Span::styled("punish  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[s] ", Style::default().fg(Color::Yellow)),
+            Span::styled("[x] ", Style::default().fg(Color::Yellow)),
             Span::styled("freeze  ", Style::default().fg(Color::DarkGray)),
         ]);
     }
