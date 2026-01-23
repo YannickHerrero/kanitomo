@@ -39,6 +39,8 @@ pub struct App {
     pub show_details: bool,
     /// Whether to show the stats panel
     pub show_stats: bool,
+    /// Whether to show the help bar
+    pub show_help: bool,
     /// File watcher for git changes (kept alive to maintain watching)
     _watcher: Option<RecommendedWatcher>,
     /// Channel for receiving file change events
@@ -124,6 +126,7 @@ impl App {
             show_repo_list: false,
             show_details: false,
             show_stats: true,
+            show_help: false,
             _watcher: watcher,
             watcher_rx,
             last_save: Instant::now(),
@@ -177,7 +180,9 @@ impl App {
     fn handle_key(&mut self, key: KeyCode) {
         match key {
             KeyCode::Char('q') | KeyCode::Esc => {
-                if self.show_repo_list {
+                if self.show_help {
+                    self.show_help = false;
+                } else if self.show_repo_list {
                     self.show_repo_list = false;
                 } else if self.show_details {
                     self.show_details = false;
@@ -190,16 +195,26 @@ impl App {
                 if self.git_stats.repo_count > 1 {
                     self.show_repo_list = !self.show_repo_list;
                     self.show_details = false; // Close other overlay
+                    self.show_help = false;
                 }
             }
             KeyCode::Char('d') => {
                 // Toggle details view
                 self.show_details = !self.show_details;
                 self.show_repo_list = false; // Close other overlay
+                self.show_help = false;
             }
             KeyCode::Char('r') => {
                 // Manual refresh
                 self.refresh_stats();
+            }
+            KeyCode::Char('?') => {
+                // Toggle help window
+                self.show_help = !self.show_help;
+                if self.show_help {
+                    self.show_repo_list = false;
+                    self.show_details = false;
+                }
             }
             KeyCode::Char('f') if self.debug_mode => {
                 // Manual feed (debug only)
@@ -457,27 +472,20 @@ impl App {
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
-        // Layout: Title | Crab Area | Stats (optional) | Help
-        let chunks = if self.show_stats {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(1),  // Title
-                    Constraint::Min(8),     // Crab area
-                    Constraint::Length(12), // Stats
-                    Constraint::Length(1),  // Help
-                ])
-                .split(area)
-        } else {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(1), // Title
-                    Constraint::Min(8),    // Crab area
-                    Constraint::Length(1), // Help
-                ])
-                .split(area)
-        };
+        // Layout: Title | Crab Area | Stats (optional)
+        let mut constraints = vec![
+            Constraint::Length(1), // Title
+            Constraint::Min(8),    // Crab area
+        ];
+
+        if self.show_stats {
+            constraints.push(Constraint::Length(12));
+        }
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints)
+            .split(area);
 
         let crab_area = chunks[1];
 
@@ -520,16 +528,6 @@ impl App {
             );
         }
 
-        let help_area = chunks[chunks.len() - 1];
-        // 7. Help bar
-        widgets::render_help(
-            frame,
-            help_area,
-            self.debug_mode,
-            self.git_stats.repo_count > 1,
-            self.show_stats,
-        );
-
         // Render overlays
         if self.show_repo_list {
             widgets::render_repo_list(frame, &self.git_stats.repo_names, area);
@@ -537,6 +535,16 @@ impl App {
 
         if self.show_details {
             widgets::render_details_overlay(frame, &self.app_state, area);
+        }
+
+        if self.show_help {
+            widgets::render_help_overlay(
+                frame,
+                area,
+                self.debug_mode,
+                self.git_stats.repo_count > 1,
+                self.show_stats,
+            );
         }
     }
 }

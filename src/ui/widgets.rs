@@ -363,55 +363,112 @@ fn render_happiness_bar(happiness: u8) -> Line<'static> {
     ])
 }
 
-/// Render the help bar at the bottom
-pub fn render_help(
+/// Render the help overlay window
+pub fn render_help_overlay(
     frame: &mut Frame,
     area: Rect,
     debug_mode: bool,
     multi_repo: bool,
     show_stats: bool,
 ) {
-    let mut spans = vec![
-        Span::styled(" [q] ", Style::default().fg(Color::Yellow)),
-        Span::styled("quit  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("[r] ", Style::default().fg(Color::Yellow)),
-        Span::styled("refresh  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("[d] ", Style::default().fg(Color::Yellow)),
-        Span::styled("details  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("[s] ", Style::default().fg(Color::Yellow)),
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    lines.push(Line::from(vec![Span::styled(
+        "  CONTROLS",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    lines.push(Line::from(vec![
+        Span::styled("  [q] ", Style::default().fg(Color::Yellow)),
+        Span::styled("quit", Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [?] ", Style::default().fg(Color::Yellow)),
+        Span::styled("close help", Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [r] ", Style::default().fg(Color::Yellow)),
+        Span::styled("refresh", Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [d] ", Style::default().fg(Color::Yellow)),
+        Span::styled("details", Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [s] ", Style::default().fg(Color::Yellow)),
         Span::styled(
             if show_stats {
-                "hide stats  "
+                "hide stats"
             } else {
-                "show stats  "
+                "show stats"
             },
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::White),
         ),
-    ];
+    ]));
 
     if multi_repo {
-        spans.extend([
-            Span::styled("[a] ", Style::default().fg(Color::Yellow)),
-            Span::styled("repos  ", Style::default().fg(Color::DarkGray)),
-        ]);
+        lines.push(Line::from(vec![
+            Span::styled("  [a] ", Style::default().fg(Color::Yellow)),
+            Span::styled("repos", Style::default().fg(Color::White)),
+        ]));
     }
 
     if debug_mode {
-        spans.extend([
-            Span::styled("[f] ", Style::default().fg(Color::Yellow)),
-            Span::styled("feed  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[p] ", Style::default().fg(Color::Yellow)),
-            Span::styled("punish  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[g] ", Style::default().fg(Color::Yellow)),
-            Span::styled("ground  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[x] ", Style::default().fg(Color::Yellow)),
-            Span::styled("freeze  ", Style::default().fg(Color::DarkGray)),
-        ]);
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![Span::styled(
+            "  DEBUG",
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        )]));
+        lines.push(Line::from(vec![
+            Span::styled("  [f] ", Style::default().fg(Color::Yellow)),
+            Span::styled("feed", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [p] ", Style::default().fg(Color::Yellow)),
+            Span::styled("punish", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [g] ", Style::default().fg(Color::Yellow)),
+            Span::styled("ground", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [x] ", Style::default().fg(Color::Yellow)),
+            Span::styled("freeze", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [c] ", Style::default().fg(Color::Yellow)),
+            Span::styled("fast cycle", Style::default().fg(Color::White)),
+        ]));
     }
 
-    let help_text = Line::from(spans);
-    let paragraph = Paragraph::new(help_text).alignment(Alignment::Center);
-    frame.render_widget(paragraph, area);
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [?] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let overlay_width = 42.min(area.width.saturating_sub(4));
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    frame.render_widget(Clear, overlay_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Help ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
 }
 
 /// Render the title bar with Kani's message
