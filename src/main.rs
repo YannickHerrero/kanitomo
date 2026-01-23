@@ -1,4 +1,5 @@
 mod crab;
+mod environment;
 mod git;
 mod state;
 mod ui;

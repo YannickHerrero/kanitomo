@@ -1,3 +1,4 @@
+use crate::environment::GroundStyle;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, Weekday};
 use serde::{Deserialize, Serialize};
@@ -41,6 +42,12 @@ pub struct AppState {
     /// Current streak (consecutive weekdays with commits, weekends as bonus)
     #[serde(default)]
     pub current_streak: u32,
+    /// Current ground style for the environment
+    #[serde(default)]
+    pub ground_style: GroundStyle,
+    /// ISO week number when the ground style was set (for weekly rotation)
+    #[serde(default)]
+    pub ground_style_week: u32,
 }
 
 fn default_version() -> u32 {
@@ -58,6 +65,8 @@ impl Default for AppState {
             commit_history: Vec::new(),
             last_commit_time: None,
             current_streak: 0,
+            ground_style: GroundStyle::random(),
+            ground_style_week: Local::now().iso_week().week(),
         }
     }
 }
@@ -100,6 +109,13 @@ impl StateManager {
 
         // Recalculate streak from history (may have broken since last session)
         state.current_streak = calculate_streak_from_history(&state.commit_history);
+
+        // Check if we should rotate ground style (new week)
+        let current_week = Local::now().iso_week().week();
+        if state.ground_style_week != current_week {
+            state.ground_style = GroundStyle::random();
+            state.ground_style_week = current_week;
+        }
 
         // Update last seen
         state.last_seen = Local::now();

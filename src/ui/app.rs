@@ -1,4 +1,5 @@
 use crate::crab::{Crab, Mood};
+use crate::environment::Environment;
 use crate::git::{DetectedCommit, GitStats, GitTracker};
 use crate::state::{calculate_streak_from_history, AppState, StateManager, TrackedCommit};
 use crate::ui::{messages, widgets};
@@ -49,6 +50,12 @@ pub struct App {
     last_message_change: Instant,
     /// Last known mood (to detect mood changes)
     last_mood: Mood,
+    /// The environment (ground, background, objects)
+    pub environment: Environment,
+    /// Last known terminal size (for resize detection)
+    last_terminal_size: (u16, u16),
+    /// Last time we checked time of day for environment
+    last_time_check: Instant,
 }
 
 impl App {
@@ -61,7 +68,8 @@ impl App {
         let git_stats = git_tracker.get_stats();
 
         // Create the crab with loaded happiness
-        let crab = Crab::new((10.0, 2.0), app_state.happiness);
+        // Start at a high y position so it falls to ground on first update
+        let crab = Crab::new((10.0, 100.0), app_state.happiness);
 
         // Set up file watcher for all git repos
         let git_dirs = git_tracker.git_dirs();
@@ -97,6 +105,9 @@ impl App {
         let current_mood = Mood::from_happiness(app_state.happiness);
         let initial_message = messages::get_mood_message(current_mood).to_string();
 
+        // Create initial environment with default size (will be resized on first draw)
+        let environment = Environment::generate(80, 15, app_state.ground_style);
+
         Ok(Self {
             crab,
             git_tracker,
@@ -115,6 +126,9 @@ impl App {
             temp_message_until: None,
             last_message_change: Instant::now(),
             last_mood: current_mood,
+            environment,
+            last_terminal_size: (0, 0), // Will trigger regeneration on first draw
+            last_time_check: Instant::now(),
         })
     }
 
@@ -202,11 +216,16 @@ impl App {
 
     /// Update game state
     fn update(&mut self) {
-        // Get terminal size for bounds
-        let bounds = (80.0, 15.0); // Default, will be updated in draw
+        // Use last known terminal size for bounds (updated in draw)
+        let bounds = (
+            self.last_terminal_size.0 as f32 - 2.0,
+            self.last_terminal_size.1 as f32,
+        );
 
-        // Update crab animation
-        self.crab.update(0.05, bounds);
+        // Update crab animation (only if we have valid bounds)
+        if bounds.0 > 0.0 && bounds.1 > 0.0 {
+            self.crab.update(0.05, bounds);
+        }
 
         // Check for file system events (new commits)
         self.check_for_changes();
@@ -216,6 +235,12 @@ impl App {
 
         // Update messages
         self.update_messages();
+
+        // Periodic time of day check (every 60 seconds)
+        if self.last_time_check.elapsed() > Duration::from_secs(60) {
+            self.environment.update_time();
+            self.last_time_check = Instant::now();
+        }
 
         // Periodic save (every 60 seconds)
         if self.last_save.elapsed() > Duration::from_secs(60) {
@@ -359,10 +384,6 @@ impl App {
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
-        // Update crab bounds based on actual terminal size
-        let crab_bounds = (area.width as f32 - 4.0, (area.height as f32 * 0.5) - 2.0);
-        self.crab.update(0.0, crab_bounds); // Update bounds without time delta
-
         // Layout: Title | Crab Area | Stats | Help
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -374,9 +395,37 @@ impl App {
             ])
             .split(area);
 
-        // Render components
+        let crab_area = chunks[1];
+
+        // Check for terminal resize and regenerate environment
+        let current_size = (crab_area.width, crab_area.height);
+        if current_size != self.last_terminal_size {
+            self.environment = Environment::generate(
+                crab_area.width,
+                crab_area.height,
+                self.app_state.ground_style,
+            );
+            self.last_terminal_size = current_size;
+        }
+
+        // Update crab bounds based on actual crab area size
+        let crab_bounds = (crab_area.width as f32 - 2.0, crab_area.height as f32);
+        self.crab.update(0.0, crab_bounds); // Update bounds without time delta
+
+        // Render components in correct order:
+        // 1. Title
         widgets::render_title(frame, chunks[0], self.get_display_message());
-        widgets::render_crab(frame, &self.crab, chunks[1]);
+
+        // 2. Environment background (sky, sun/moon, clouds, stars)
+        widgets::render_environment_background(frame, &self.environment, crab_area);
+
+        // 3. Kani (the crab)
+        widgets::render_crab(frame, &self.crab, crab_area);
+
+        // 4. Ground line (at bottom of crab area)
+        widgets::render_ground(frame, &self.environment, crab_area);
+
+        // 5. Stats panel
         widgets::render_stats(
             frame,
             &self.git_stats,
@@ -384,6 +433,8 @@ impl App {
             self.crab.happiness,
             chunks[2],
         );
+
+        // 7. Help bar
         widgets::render_help(
             frame,
             chunks[3],

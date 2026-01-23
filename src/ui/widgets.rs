@@ -1,4 +1,5 @@
 use crate::crab::Crab;
+use crate::environment::{Environment, TimeOfDay};
 use crate::git::{format_time_ago, GitStats};
 use crate::state::{get_today_by_project, get_week_summary, AppState};
 use chrono::Datelike;
@@ -42,6 +43,114 @@ pub fn render_crab(frame: &mut Frame, crab: &Crab, area: Rect) {
 
     let paragraph = Paragraph::new(crab_text);
     frame.render_widget(paragraph, crab_area);
+}
+
+/// Render the environment background (sky, sun/moon, clouds, stars)
+/// This should be rendered BEFORE the crab
+pub fn render_environment_background(frame: &mut Frame, env: &Environment, area: Rect) {
+    // Get celestial color based on time of day
+    let celestial_color = match env.time_of_day {
+        TimeOfDay::Morning => Color::Yellow,
+        TimeOfDay::Day => Color::Yellow,
+        TimeOfDay::Evening => Color::Rgb(255, 200, 100),
+        TimeOfDay::Night => Color::White,
+    };
+
+    // Render stars at night
+    if env.time_of_day == TimeOfDay::Night {
+        for star in &env.stars {
+            if star.x < area.width && star.y < area.height {
+                let star_area = Rect {
+                    x: area.x + star.x,
+                    y: area.y + star.y,
+                    width: 1,
+                    height: 1,
+                };
+                let star_char =
+                    Paragraph::new(star.char.to_string()).style(Style::default().fg(Color::White));
+                frame.render_widget(star_char, star_area);
+            }
+        }
+    }
+
+    // Render background elements (sun/moon, clouds)
+    for element in &env.background_elements {
+        let elem_color = if element
+            .content
+            .iter()
+            .any(|s| s.contains('O') || s.contains('|'))
+            && env.time_of_day != TimeOfDay::Night
+        {
+            // Sun
+            celestial_color
+        } else if element
+            .content
+            .iter()
+            .any(|s| s.contains('(') || s.contains(')'))
+            && element.content.len() <= 4
+        {
+            // Moon
+            Color::Rgb(200, 200, 220)
+        } else {
+            // Clouds
+            Color::DarkGray
+        };
+
+        for (i, line) in element.content.iter().enumerate() {
+            let y = element.y + i as u16;
+            if y < area.height && element.x < area.width {
+                let line_area = Rect {
+                    x: area.x + element.x,
+                    y: area.y + y,
+                    width: line.len().min((area.width - element.x) as usize) as u16,
+                    height: 1,
+                };
+                let line_widget =
+                    Paragraph::new(line.clone()).style(Style::default().fg(elem_color));
+                frame.render_widget(line_widget, line_area);
+            }
+        }
+    }
+}
+
+/// Render the ground line at the bottom of the crab area
+/// This should be rendered AFTER the crab
+pub fn render_ground(frame: &mut Frame, env: &Environment, area: Rect) {
+    if area.height == 0 {
+        return;
+    }
+
+    // Ground is at the very bottom of the crab area
+    let ground_y = area.y + area.height.saturating_sub(1);
+
+    // Get ground color based on style and time
+    let ground_color = match env.time_of_day {
+        TimeOfDay::Night => match env.ground_style {
+            crate::environment::GroundStyle::Beach => Color::Rgb(80, 70, 50),
+            crate::environment::GroundStyle::Garden => Color::Rgb(30, 60, 30),
+            crate::environment::GroundStyle::Rocky => Color::Rgb(60, 60, 60),
+            crate::environment::GroundStyle::Minimal => Color::DarkGray,
+        },
+        _ => match env.ground_style {
+            crate::environment::GroundStyle::Beach => Color::Rgb(194, 178, 128), // Sandy
+            crate::environment::GroundStyle::Garden => Color::Rgb(34, 139, 34),  // Forest green
+            crate::environment::GroundStyle::Rocky => Color::Rgb(128, 128, 128), // Gray
+            crate::environment::GroundStyle::Minimal => Color::DarkGray,
+        },
+    };
+
+    // Truncate ground line to fit area width
+    let ground_display: String = env.ground_line.chars().take(area.width as usize).collect();
+
+    let ground_area = Rect {
+        x: area.x,
+        y: ground_y,
+        width: area.width,
+        height: 1,
+    };
+
+    let ground_widget = Paragraph::new(ground_display).style(Style::default().fg(ground_color));
+    frame.render_widget(ground_widget, ground_area);
 }
 
 /// Render the stats panel
