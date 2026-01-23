@@ -61,6 +61,7 @@ Kani will automatically discover git repositories in immediate subdirectories an
 | `a` | View watched repositories |
 | `d` | View commit stats (today's commits by project, weekly summary) |
 | `s` | Toggle stats panel |
+| `?` | Toggle help window |
 | `q` | Quit |
 
 ### Happiness
@@ -75,6 +76,7 @@ Run with `--debug` to enable:
 |-----|--------|
 | `f` | Add a debug commit |
 | `p` | Remove a debug commit |
+| `g` | Cycle ground styles |
 | `c` | Toggle fast cycle |
 | `x` | Freeze movement |
 
