@@ -73,43 +73,94 @@ pub fn render_environment_background(frame: &mut Frame, env: &Environment, area:
         }
     }
 
-    // Render background elements (sun/moon, clouds)
-    for element in &env.background_elements {
-        let elem_color = if element
-            .content
-            .iter()
-            .any(|s| s.contains('O') || s.contains('|'))
-            && env.time_of_day != TimeOfDay::Night
-        {
-            // Sun
-            celestial_color
-        } else if element
-            .content
-            .iter()
-            .any(|s| s.contains('(') || s.contains(')'))
-            && element.content.len() <= 4
-        {
-            // Moon
-            Color::Rgb(200, 200, 220)
-        } else {
-            // Clouds
-            Color::DarkGray
+    // Render sun
+    if let Some((x, y)) = env.sun_position() {
+        render_element(
+            frame,
+            &crate::environment::elements::SUN
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+            x,
+            y,
+            celestial_color,
+            area,
+        );
+    }
+
+    // Render moon
+    if let Some((x, y)) = env.moon_position() {
+        render_element(
+            frame,
+            &crate::environment::elements::MOON_SMALL
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+            x,
+            y,
+            Color::Rgb(200, 200, 220),
+            area,
+        );
+    }
+
+    // Render clouds
+    let cloud_color = if env.time_of_day == TimeOfDay::Night {
+        Color::DarkGray
+    } else {
+        Color::Gray
+    };
+    for cloud in &env.clouds {
+        let cloud_x = cloud.x.round() as i32;
+        if cloud_x >= area.width as i32 || cloud_x + cloud.width as i32 <= 0 {
+            continue;
+        }
+
+        render_element(
+            frame,
+            &cloud.content,
+            cloud_x,
+            cloud.y as i32,
+            cloud_color,
+            area,
+        );
+    }
+}
+
+fn render_element(frame: &mut Frame, content: &[String], x: i32, y: i32, color: Color, area: Rect) {
+    for (i, line) in content.iter().enumerate() {
+        let y_pos = y + i as i32;
+        if y_pos < 0 || y_pos >= area.height as i32 {
+            continue;
+        }
+
+        if x >= area.width as i32 {
+            continue;
+        }
+
+        let x_start = x.max(0) as u16;
+        let max_width = area.width.saturating_sub(x_start) as usize;
+        if max_width == 0 {
+            continue;
+        }
+
+        let line_start = if x < 0 { (-x) as usize } else { 0 };
+        if line_start >= line.len() {
+            continue;
+        }
+
+        let visible = &line[line_start..];
+        let width = visible.len().min(max_width) as u16;
+        let visible = &visible[..width as usize];
+
+        let line_area = Rect {
+            x: area.x + x_start,
+            y: area.y + y_pos as u16,
+            width,
+            height: 1,
         };
 
-        for (i, line) in element.content.iter().enumerate() {
-            let y = element.y + i as u16;
-            if y < area.height && element.x < area.width {
-                let line_area = Rect {
-                    x: area.x + element.x,
-                    y: area.y + y,
-                    width: line.len().min((area.width - element.x) as usize) as u16,
-                    height: 1,
-                };
-                let line_widget =
-                    Paragraph::new(line.clone()).style(Style::default().fg(elem_color));
-                frame.render_widget(line_widget, line_area);
-            }
-        }
+        let line_widget = Paragraph::new(visible.to_string()).style(Style::default().fg(color));
+        frame.render_widget(line_widget, line_area);
     }
 }
 

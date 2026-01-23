@@ -2,10 +2,10 @@
 
 pub mod elements;
 
-use chrono::{Local, Timelike};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// Time of day for background rendering
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -17,14 +17,15 @@ pub enum TimeOfDay {
 }
 
 impl TimeOfDay {
-    /// Get current time of day based on system clock
-    pub fn current() -> Self {
-        let hour = Local::now().hour();
-        match hour {
-            6..=11 => TimeOfDay::Morning,
-            12..=17 => TimeOfDay::Day,
-            18..=20 => TimeOfDay::Evening,
-            _ => TimeOfDay::Night,
+    pub fn from_phase(phase: f32) -> Self {
+        if phase < 0.2 {
+            TimeOfDay::Morning
+        } else if phase < 0.45 {
+            TimeOfDay::Day
+        } else if phase < 0.5 {
+            TimeOfDay::Evening
+        } else {
+            TimeOfDay::Night
         }
     }
 }
@@ -62,14 +63,6 @@ impl GroundStyle {
     }
 }
 
-/// A positioned element in the environment
-#[derive(Debug, Clone)]
-pub struct PositionedElement {
-    pub x: u16,
-    pub y: u16,
-    pub content: Vec<String>,
-}
-
 /// A star in the night sky
 #[derive(Debug, Clone)]
 pub struct Star {
@@ -80,6 +73,16 @@ pub struct Star {
     pub twinkle_offset: f32,
 }
 
+/// A moving cloud
+#[derive(Debug, Clone)]
+pub struct Cloud {
+    pub x: f32,
+    pub y: u16,
+    pub speed: f32,
+    pub content: Vec<String>,
+    pub width: u16,
+}
+
 /// The complete environment state
 #[derive(Debug, Clone)]
 pub struct Environment {
@@ -87,8 +90,8 @@ pub struct Environment {
     pub ground_style: GroundStyle,
     /// Generated ground line (cached)
     pub ground_line: String,
-    /// Background objects (clouds, sun/moon)
-    pub background_elements: Vec<PositionedElement>,
+    /// Moving clouds
+    pub clouds: Vec<Cloud>,
     /// Stars for nighttime
     pub stars: Vec<Star>,
     /// Width of the environment
@@ -97,19 +100,25 @@ pub struct Environment {
     pub height: u16,
     /// Current time of day
     pub time_of_day: TimeOfDay,
+    /// Day/night cycle phase (0.0 to 1.0)
+    pub cycle_phase: f32,
+    /// Total cycle duration
+    pub cycle_duration: Duration,
 }
 
 impl Environment {
     /// Generate a new environment for the given dimensions
     pub fn generate(width: u16, height: u16, style: GroundStyle) -> Self {
         let mut rng = rand::thread_rng();
-        let time_of_day = TimeOfDay::current();
+        let cycle_duration = Duration::from_secs(18 * 60);
+        let cycle_phase = 0.0; // Always start at sunrise
+        let time_of_day = TimeOfDay::from_phase(cycle_phase);
 
         // Generate ground line
         let ground_line = Self::generate_ground_line(width, style, &mut rng);
 
-        // Generate background elements
-        let background_elements = Self::generate_background(width, height, time_of_day, &mut rng);
+        // Generate moving clouds
+        let clouds = Self::generate_clouds(width, height, time_of_day, &mut rng);
 
         // Generate stars for nighttime
         let stars = if time_of_day == TimeOfDay::Night {
@@ -121,11 +130,13 @@ impl Environment {
         Self {
             ground_style: style,
             ground_line,
-            background_elements,
+            clouds,
             stars,
             width,
             height,
             time_of_day,
+            cycle_phase,
+            cycle_duration,
         }
     }
 
@@ -137,75 +148,42 @@ impl Environment {
             .collect()
     }
 
-    /// Generate background elements (sun/moon, clouds)
-    fn generate_background(
-        width: u16,
-        height: u16,
-        time: TimeOfDay,
-        rng: &mut impl Rng,
-    ) -> Vec<PositionedElement> {
-        let mut elements = Vec::new();
+    /// Generate moving clouds
+    fn generate_clouds(width: u16, height: u16, time: TimeOfDay, rng: &mut impl Rng) -> Vec<Cloud> {
+        let mut clouds = Vec::new();
 
-        // Only add background elements if we have enough space
         if height < 6 || width < 20 {
-            return elements;
+            return clouds;
         }
 
-        // Add sun or moon based on time of day
-        match time {
-            TimeOfDay::Morning | TimeOfDay::Day | TimeOfDay::Evening => {
-                // Add sun in the upper portion
-                if width >= 15 {
-                    let sun_x = rng.gen_range(width / 3..width * 2 / 3);
-                    let sun_y = rng.gen_range(0..2.min(height / 4));
-                    elements.push(PositionedElement {
-                        x: sun_x,
-                        y: sun_y,
-                        content: elements::SUN.iter().map(|s| s.to_string()).collect(),
-                    });
-                }
-            }
-            TimeOfDay::Night => {
-                // Add moon
-                if width >= 12 && height >= 5 {
-                    let moon_x = rng.gen_range(width / 4..width / 2);
-                    elements.push(PositionedElement {
-                        x: moon_x,
-                        y: 0,
-                        content: elements::MOON_SMALL.iter().map(|s| s.to_string()).collect(),
-                    });
-                }
-            }
-        }
-
-        // Add 0-2 clouds (more during day, fewer at night)
         let cloud_count = match time {
             TimeOfDay::Day => rng.gen_range(1..=3),
             TimeOfDay::Morning | TimeOfDay::Evening => rng.gen_range(0..=2),
-            TimeOfDay::Night => 0, // No clouds at night (stars instead)
+            TimeOfDay::Night => rng.gen_range(0..=1),
         };
 
         for _ in 0..cloud_count {
-            if width >= 15 && height >= 5 {
-                let cloud = if rng.gen_bool(0.5) {
-                    elements::CLOUD_SMALL
-                } else {
-                    elements::CLOUD_LARGE
-                };
+            let cloud = if rng.gen_bool(0.5) {
+                elements::CLOUD_SMALL
+            } else {
+                elements::CLOUD_LARGE
+            };
 
-                let cloud_width = cloud[0].len() as u16;
-                let cloud_x = rng.gen_range(0..width.saturating_sub(cloud_width));
-                let cloud_y = rng.gen_range(0..height / 3);
+            let cloud_width = cloud[0].len() as u16;
+            let cloud_x = rng.gen_range(0..width.saturating_sub(cloud_width)) as f32;
+            let cloud_y = rng.gen_range(0..height / 3);
+            let speed = rng.gen_range(0.25..0.7); // chars/sec, slow
 
-                elements.push(PositionedElement {
-                    x: cloud_x,
-                    y: cloud_y,
-                    content: cloud.iter().map(|s| s.to_string()).collect(),
-                });
-            }
+            clouds.push(Cloud {
+                x: cloud_x,
+                y: cloud_y,
+                speed,
+                content: cloud.iter().map(|s| s.to_string()).collect(),
+                width: cloud_width,
+            });
         }
 
-        elements
+        clouds
     }
 
     /// Generate stars for nighttime
@@ -230,20 +208,59 @@ impl Environment {
         stars
     }
 
-    /// Update time of day (call periodically to refresh)
-    pub fn update_time(&mut self) {
-        let new_time = TimeOfDay::current();
+    /// Update day/night cycle and move clouds
+    pub fn update_cycle(&mut self, dt: f32, cycle_speed: f32, cloud_speed: f32) {
+        let cycle_seconds = self.cycle_duration.as_secs_f32().max(1.0);
+        let cycle_dt = dt * cycle_speed;
+        let cloud_dt = dt * cloud_speed;
+        self.cycle_phase = (self.cycle_phase + (cycle_dt / cycle_seconds)) % 1.0;
+
+        let new_time = TimeOfDay::from_phase(self.cycle_phase);
         if new_time != self.time_of_day {
-            // Regenerate background for new time of day
             let mut rng = rand::thread_rng();
             self.time_of_day = new_time;
-            self.background_elements =
-                Self::generate_background(self.width, self.height, new_time, &mut rng);
+            self.clouds = Self::generate_clouds(self.width, self.height, new_time, &mut rng);
             self.stars = if new_time == TimeOfDay::Night {
                 Self::generate_stars(self.width, self.height, &mut rng)
             } else {
                 Vec::new()
             };
         }
+
+        for cloud in &mut self.clouds {
+            cloud.x += cloud.speed * cloud_dt;
+            if cloud.x > self.width as f32 + cloud.width as f32 {
+                cloud.x = -(cloud.width as f32);
+            }
+        }
+    }
+
+    pub fn sun_position(&self) -> Option<(i32, i32)> {
+        if self.cycle_phase >= 0.5 {
+            return None;
+        }
+        Some(self.arc_position(self.cycle_phase * 2.0))
+    }
+
+    pub fn moon_position(&self) -> Option<(i32, i32)> {
+        if self.cycle_phase < 0.5 {
+            return None;
+        }
+        Some(self.arc_position((self.cycle_phase - 0.5) * 2.0))
+    }
+
+    fn arc_position(&self, t: f32) -> (i32, i32) {
+        let width = self.width.max(1) as f32;
+        let height = self.height.max(1) as f32;
+        let left_x = -(width * 0.1).max(3.0);
+        let right_x = width * 1.1;
+        let base_y = height * 0.25;
+        let apex_y = (height * 0.05).max(0.0);
+        let arc_height = (base_y - apex_y).max(1.0);
+
+        let x = left_x + (right_x - left_x) * t;
+        let y = base_y - arc_height * (std::f32::consts::PI * t).sin();
+
+        (x.round() as i32, y.round() as i32)
     }
 }

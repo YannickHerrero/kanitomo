@@ -54,8 +54,8 @@ pub struct App {
     pub environment: Environment,
     /// Last known terminal size (for resize detection)
     last_terminal_size: (u16, u16),
-    /// Last time we checked time of day for environment
-    last_time_check: Instant,
+    /// Debug: run an accelerated day/night cycle
+    fast_cycle: bool,
 }
 
 impl App {
@@ -128,7 +128,7 @@ impl App {
             last_mood: current_mood,
             environment,
             last_terminal_size: (0, 0), // Will trigger regeneration on first draw
-            last_time_check: Instant::now(),
+            fast_cycle: false,
         })
     }
 
@@ -210,12 +210,19 @@ impl App {
                 // Toggle movement freeze (debug only)
                 self.crab.movement_frozen = !self.crab.movement_frozen;
             }
+            KeyCode::Char('c') if self.debug_mode => {
+                // Toggle fast day/night cycle (debug only)
+                self.fast_cycle = !self.fast_cycle;
+                let status = if self.fast_cycle { "on" } else { "off" };
+                self.set_temp_message(&format!("Fast cycle: {status}"));
+            }
             _ => {}
         }
     }
 
     /// Update game state
     fn update(&mut self) {
+        let dt = 0.05;
         // Use last known terminal size for bounds (updated in draw)
         let bounds = (
             self.last_terminal_size.0 as f32 - 2.0,
@@ -224,7 +231,7 @@ impl App {
 
         // Update crab animation (only if we have valid bounds)
         if bounds.0 > 0.0 && bounds.1 > 0.0 {
-            self.crab.update(0.05, bounds);
+            self.crab.update(dt, bounds);
         }
 
         // Check for file system events (new commits)
@@ -236,11 +243,14 @@ impl App {
         // Update messages
         self.update_messages();
 
-        // Periodic time of day check (every 60 seconds)
-        if self.last_time_check.elapsed() > Duration::from_secs(60) {
-            self.environment.update_time();
-            self.last_time_check = Instant::now();
-        }
+        // Update day/night cycle and environment movement
+        let cycle_speed = if self.fast_cycle {
+            self.environment.cycle_duration.as_secs_f32() / 10.0
+        } else {
+            1.0
+        };
+        let cloud_speed = if self.fast_cycle { 3.0 } else { 1.0 };
+        self.environment.update_cycle(dt, cycle_speed, cloud_speed);
 
         // Periodic save (every 60 seconds)
         if self.last_save.elapsed() > Duration::from_secs(60) {
