@@ -26,7 +26,7 @@ So "Kanitomo" literally means "crab friend" - your little terminal companion tha
 - **Kani talks!** - Dynamic mood-based messages in the title bar
 - **Multi-repo support** - Run in your dev folder to watch all projects at once
 - **Commit tracking** - See today's commits per project and weekly summary
-- Happiness system that rewards consistent coding
+- Happiness is driven by today's commits (fast early gains, slower near the top)
 - Weekends off - Kani won't get sad while you rest
 - Persistent state - Kani remembers you between sessions
 
@@ -63,14 +63,18 @@ Kani will automatically discover git repositories in immediate subdirectories an
 | `s` | Toggle stats panel |
 | `q` | Quit |
 
+### Happiness
+
+Happiness is based solely on how many commits you make today. It rises quickly at first and slows near the top, reaching 100% at 20 commits.
+
 ### Debug Keybindings
 
 Run with `--debug` to enable:
 
 | Key | Action |
 |-----|--------|
-| `f` | Feed Kani |
-| `p` | Punish Kani |
+| `f` | Add a debug commit |
+| `p` | Remove a debug commit |
 | `c` | Toggle fast cycle |
 | `x` | Freeze movement |
 
