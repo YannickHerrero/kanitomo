@@ -180,8 +180,8 @@ impl Environment {
 
         // Add 0-2 clouds (more during day, fewer at night)
         let cloud_count = match time {
-            TimeOfDay::Day => rng.gen_range(0..=2),
-            TimeOfDay::Morning | TimeOfDay::Evening => rng.gen_range(0..=1),
+            TimeOfDay::Day => rng.gen_range(1..=3),
+            TimeOfDay::Morning | TimeOfDay::Evening => rng.gen_range(0..=2),
             TimeOfDay::Night => 0, // No clouds at night (stars instead)
         };
 

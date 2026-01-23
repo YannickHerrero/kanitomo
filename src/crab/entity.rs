@@ -7,10 +7,10 @@ const GROUND_FRICTION: f32 = 0.92;
 const AIR_FRICTION: f32 = 0.98;
 
 /// Jump strengths for different triggers
-const JUMP_STRENGTH_CELEBRATION: f32 = 3.0;
-const JUMP_STRENGTH_ECSTATIC: f32 = 2.4;
-const JUMP_STRENGTH_HAPPY: f32 = 1.8;
-const JUMP_STRENGTH_NEUTRAL: f32 = 1.2;
+const JUMP_STRENGTH_CELEBRATION: f32 = 2.2;
+const JUMP_STRENGTH_ECSTATIC: f32 = 1.8;
+const JUMP_STRENGTH_HAPPY: f32 = 1.4;
+const JUMP_STRENGTH_NEUTRAL: f32 = 1.0;
 
 /// Direction the crab is facing
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -339,8 +339,8 @@ impl Crab {
     }
 
     fn randomize_jump_strength(&mut self, base: f32) -> f32 {
-        let variance = self.rng.gen_range(0.7..1.05);
-        (base * variance).max(0.8)
+        let variance = self.rng.gen_range(0.6..0.95);
+        (base * variance).max(0.7)
     }
 
     /// Get the current animation frame as a string

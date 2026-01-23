@@ -14,7 +14,7 @@ pub const ROCKY_CHARS: &[char] = &['.', 'o', '.', 'O', '.', '^', '.', 'o', '.', 
 pub const MINIMAL_CHAR: char = '-';
 
 /// Background element: Sun (for daytime)
-pub const SUN: &[&str] = &[r" \ | / ", r"  \|/  ", r"-- O --", r"  /|\  ", r" / | \ "];
+pub const SUN: &[&str] = &[r"  \*/  ", r"-- O --", r"  /*\  "];
 
 /// Background element: Moon (for nighttime)
 pub const MOON: &[&str] = &[
