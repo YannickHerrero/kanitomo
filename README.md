@@ -26,6 +26,7 @@ So "Kanitomo" literally means "crab friend" - your little terminal companion tha
 - **Kani talks!** - Dynamic mood-based messages in the title bar
 - **Multi-repo support** - Run in your dev folder to watch all projects at once
 - **Commit tracking** - See today's commits per project and weekly summary
+- **Mini-games** - Take a break with Crab Catch and chase high scores
 - Happiness is driven by today's commits (fast early gains, slower near the top)
 - Weekends off - Kani won't get sad while you rest
 - Persistent state - Kani remembers you between sessions
@@ -73,7 +74,7 @@ Kani will automatically discover git repositories in immediate subdirectories an
 
 ### Mini Games
 
-Press `space` to open the mini-game menu. The first mini-game is Crab Catch, where you move Kani to catch falling crab snacks.
+Press `space` to open the mini-game menu. The first mini-game is Crab Catch, where you move Kani to catch falling crab snacks in a 20-second round with best scores saved.
 
 | Key | Action |
 |-----|--------|
