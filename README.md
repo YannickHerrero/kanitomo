@@ -63,6 +63,16 @@ Kani will automatically discover git repositories in immediate subdirectories an
 | `s` | Toggle stats panel |
 | `q` | Quit |
 
+### Debug Keybindings
+
+Run with `--debug` to enable:
+
+| Key | Action |
+|-----|--------|
+| `f` | Feed Kani |
+| `p` | Punish Kani |
+| `x` | Freeze movement |
+
 ### Reset Stats
 
 Start fresh by clearing all stats (happiness, streak, commit history):
