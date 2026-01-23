@@ -16,18 +16,8 @@ pub const MINIMAL_CHAR: char = '-';
 /// Background element: Sun (for daytime)
 pub const SUN: &[&str] = &[r"  \*/  ", r"-- O --", r"  /*\  "];
 
-/// Background element: Moon (for nighttime)
-pub const MOON: &[&str] = &[
-    r"   _.._   ",
-    r" .' .-'`  ",
-    r"/  /      ",
-    r"|  |      ",
-    r"\  \      ",
-    r" '._'-._  ",
-];
-
 /// Small moon for smaller terminals
-pub const MOON_SMALL: &[&str] = &[r" _  ", r"( ) ", r" ~  "];
+pub const MOON_SMALL: &[&str] = &[r"  ,-,", r" /.(", r" \ {", r"  `-`"];
 
 /// Background element: Cloud (small)
 pub const CLOUD_SMALL: &[&str] = &[r"  .--.  ", r" (    ) ", r"  `--'  "];
