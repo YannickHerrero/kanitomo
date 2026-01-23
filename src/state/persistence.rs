@@ -48,6 +48,9 @@ pub struct AppState {
     /// ISO week number when the ground style was set (for weekly rotation)
     #[serde(default)]
     pub ground_style_week: u32,
+    /// Best mini-game scores (highest first)
+    #[serde(default)]
+    pub minigame_best_scores: Vec<u32>,
 }
 
 fn default_version() -> u32 {
@@ -67,6 +70,7 @@ impl Default for AppState {
             current_streak: 0,
             ground_style: GroundStyle::random(),
             ground_style_week: Local::now().iso_week().week(),
+            minigame_best_scores: Vec::new(),
         }
     }
 }

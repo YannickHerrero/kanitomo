@@ -2,6 +2,7 @@ use crate::crab::Crab;
 use crate::environment::{Environment, TimeOfDay};
 use crate::git::{format_time_ago, GitStats};
 use crate::state::{get_today_by_project, get_week_summary, AppState};
+use crate::ui::CrabCatchGame;
 use chrono::Datelike;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -337,6 +338,242 @@ pub fn render_stats(
     frame.render_widget(paragraph, area);
 }
 
+/// Render the mini-game selection menu
+pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    lines.push(Line::from(vec![Span::styled(
+        "  MINI GAMES",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  [1] ", Style::default().fg(Color::Yellow)),
+        Span::styled("Crab Catch", Style::default().fg(Color::White)),
+    ]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [1] or [enter] to start",
+        Style::default().fg(Color::DarkGray),
+    )]));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [space] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let overlay_width = 40.min(area.width.saturating_sub(4));
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    frame.render_widget(Clear, overlay_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Mini Games ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
+}
+
+/// Render the mini-game results screen
+pub fn render_minigame_results(frame: &mut Frame, area: Rect, score: u32, app_state: &AppState) {
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    lines.push(Line::from(vec![Span::styled(
+        "  CRAB CATCH RESULTS",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            score.to_string(),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  BEST SCORES",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    if app_state.minigame_best_scores.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "  No scores yet",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]));
+    } else {
+        for (index, best) in app_state.minigame_best_scores.iter().take(5).enumerate() {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  {}.", index + 1),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(format!(" {:>3}", best), Style::default().fg(Color::White)),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [space] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let overlay_width = 36.min(area.width.saturating_sub(4));
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    frame.render_widget(Clear, overlay_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Results ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
+}
+
+/// Render the crab catch mini-game
+pub fn render_crab_catch(frame: &mut Frame, game: &CrabCatchGame, area: Rect) {
+    if area.width == 0 || area.height < 2 {
+        return;
+    }
+
+    let inner_width = game.bounds.0.min(area.width.saturating_sub(2)).max(1);
+    let play_width = inner_width.saturating_add(2);
+    let play_x = area.x + (area.width.saturating_sub(play_width) / 2);
+    let play_area = Rect {
+        x: play_x,
+        y: area.y,
+        width: play_width,
+        height: area.height,
+    };
+
+    let crab_y = play_area.y + play_area.height.saturating_sub(1);
+    let crab_x = play_area.x + 1 + game.crab_x.max(0) as u16;
+    let crab_area = Rect {
+        x: crab_x.min(play_area.x + play_area.width.saturating_sub(2)),
+        y: crab_y,
+        width: game.crab_width.min(play_area.width.saturating_sub(2)),
+        height: 1,
+    };
+
+    let crab_widget = Paragraph::new(game.crab_sprite()).style(
+        Style::default()
+            .fg(Color::Rgb(255, 120, 80))
+            .add_modifier(Modifier::BOLD),
+    );
+    frame.render_widget(crab_widget, crab_area);
+
+    for food in &game.foods {
+        let x = play_area.x + 1 + food.x.round().max(0.0) as u16;
+        let y = play_area.y + food.y.round().max(0.0) as u16;
+        if x >= play_area.x + play_area.width.saturating_sub(1)
+            || y >= play_area.y + play_area.height.saturating_sub(1)
+        {
+            continue;
+        }
+
+        let food_area = Rect {
+            x,
+            y,
+            width: 1,
+            height: 1,
+        };
+        let food_widget =
+            Paragraph::new(food.glyph.to_string()).style(Style::default().fg(Color::Green));
+        frame.render_widget(food_widget, food_area);
+    }
+
+    let remaining = game.remaining_time().as_secs();
+    let hud_lines = vec![
+        Line::from(vec![Span::styled(
+            "  Crab Catch",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.score.to_string(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Time: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{}s", remaining),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+    ];
+
+    let hud_width = 20.min(area.width.saturating_sub(2));
+    let hud_area = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: hud_width.max(1),
+        height: 5.min(area.height.saturating_sub(2)),
+    };
+
+    let hud_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    let hud_widget = Paragraph::new(hud_lines).block(hud_block);
+    frame.render_widget(hud_widget, hud_area);
+
+    let wall_style = Style::default().fg(Color::DarkGray);
+    if play_area.width >= 2 {
+        for y in play_area.y..play_area.y + play_area.height {
+            let left_wall = Rect {
+                x: play_area.x,
+                y,
+                width: 1,
+                height: 1,
+            };
+            let right_wall = Rect {
+                x: play_area.x + play_area.width.saturating_sub(1),
+                y,
+                width: 1,
+                height: 1,
+            };
+            frame.render_widget(Paragraph::new("|").style(wall_style), left_wall);
+            frame.render_widget(Paragraph::new("|").style(wall_style), right_wall);
+        }
+    }
+}
+
 /// Render a happiness bar
 fn render_happiness_bar(happiness: u8) -> Line<'static> {
     let bar_width = 20;
@@ -393,6 +630,10 @@ pub fn render_help_overlay(
         Span::styled("refresh", Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from(vec![
+        Span::styled("  [space] ", Style::default().fg(Color::Yellow)),
+        Span::styled("mini games", Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
         Span::styled("  [d] ", Style::default().fg(Color::Yellow)),
         Span::styled("details", Style::default().fg(Color::White)),
     ]));
@@ -444,6 +685,22 @@ pub fn render_help_overlay(
             Span::styled("fast cycle", Style::default().fg(Color::White)),
         ]));
     }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  MINI GAME",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+    lines.push(Line::from(vec![
+        Span::styled("  arrows/hjkl ", Style::default().fg(Color::Yellow)),
+        Span::styled("move", Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [q] ", Style::default().fg(Color::Yellow)),
+        Span::styled("exit game", Style::default().fg(Color::White)),
+    ]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(

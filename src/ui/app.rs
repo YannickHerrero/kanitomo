@@ -5,7 +5,7 @@ use crate::state::{
     calculate_happiness_from_commits, calculate_streak_from_history, get_today_commit_count,
     AppState, StateManager, TrackedCommit,
 };
-use crate::ui::{messages, widgets};
+use crate::ui::{messages, widgets, CrabCatchGame};
 use anyhow::Result;
 use chrono::{Datelike, Local};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -63,6 +63,12 @@ pub struct App {
     last_terminal_size: (u16, u16),
     /// Debug: run an accelerated day/night cycle
     fast_cycle: bool,
+    /// Whether to show the mini-game selection menu
+    show_minigame_menu: bool,
+    /// Active mini-game state
+    mini_game: Option<CrabCatchGame>,
+    /// Last mini-game score (for results screen)
+    minigame_last_score: Option<u32>,
 }
 
 impl App {
@@ -138,6 +144,9 @@ impl App {
             environment,
             last_terminal_size: (0, 0), // Will trigger regeneration on first draw
             fast_cycle: false,
+            show_minigame_menu: false,
+            mini_game: None,
+            minigame_last_score: None,
         })
     }
 
@@ -178,6 +187,45 @@ impl App {
 
     /// Handle keyboard input
     fn handle_key(&mut self, key: KeyCode) {
+        if self.minigame_last_score.is_some() {
+            match key {
+                KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => {
+                    self.minigame_last_score = None;
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        if let Some(game) = self.mini_game.as_mut() {
+            match key {
+                KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('j') => {
+                    game.move_crab(-1);
+                }
+                KeyCode::Right | KeyCode::Char('k') | KeyCode::Char('l') => {
+                    game.move_crab(1);
+                }
+                KeyCode::Char('q') | KeyCode::Esc => {
+                    self.finish_minigame();
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        if self.show_minigame_menu {
+            match key {
+                KeyCode::Char('1') | KeyCode::Enter => {
+                    self.start_crab_catch();
+                }
+                KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc => {
+                    self.show_minigame_menu = false;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match key {
             KeyCode::Char('q') | KeyCode::Esc => {
                 if self.show_help {
@@ -207,6 +255,12 @@ impl App {
             KeyCode::Char('r') => {
                 // Manual refresh
                 self.refresh_stats();
+            }
+            KeyCode::Char(' ') => {
+                self.show_minigame_menu = true;
+                self.show_repo_list = false;
+                self.show_details = false;
+                self.show_help = false;
             }
             KeyCode::Char('?') => {
                 // Toggle help window
@@ -290,9 +344,23 @@ impl App {
             self.last_terminal_size.1 as f32,
         );
 
-        // Update crab animation (only if we have valid bounds)
-        if bounds.0 > 0.0 && bounds.1 > 0.0 {
-            self.crab.update(dt, bounds);
+        let minigame_finished = if let Some(game) = self.mini_game.as_mut() {
+            let size = self.last_terminal_size;
+            if size.0 > 0 && size.1 > 0 {
+                game.update_bounds(size);
+                game.update(dt);
+            }
+            game.is_finished()
+        } else {
+            if bounds.0 > 0.0 && bounds.1 > 0.0 {
+                // Update crab animation (only if we have valid bounds)
+                self.crab.update(dt, bounds);
+            }
+            false
+        };
+
+        if minigame_finished {
+            self.finish_minigame();
         }
 
         // Check for file system events (new commits)
@@ -471,6 +539,7 @@ impl App {
     /// Draw the UI
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
+        let show_stats_panel = self.show_stats && self.mini_game.is_none();
 
         // Layout: Title | Crab Area | Stats (optional)
         let mut constraints = vec![
@@ -478,7 +547,7 @@ impl App {
             Constraint::Min(8),    // Crab area
         ];
 
-        if self.show_stats {
+        if show_stats_panel {
             constraints.push(Constraint::Length(12));
         }
 
@@ -500,32 +569,38 @@ impl App {
             self.last_terminal_size = current_size;
         }
 
-        // Update crab bounds based on actual crab area size
-        let crab_bounds = (crab_area.width as f32 - 2.0, crab_area.height as f32);
-        self.crab.update(0.0, crab_bounds); // Update bounds without time delta
+        if self.mini_game.is_none() {
+            // Update crab bounds based on actual crab area size
+            let crab_bounds = (crab_area.width as f32 - 2.0, crab_area.height as f32);
+            self.crab.update(0.0, crab_bounds); // Update bounds without time delta
+        }
 
         // Render components in correct order:
         // 1. Title
         widgets::render_title(frame, chunks[0], self.get_display_message());
 
-        // 2. Environment background (sky, sun/moon, clouds, stars)
-        widgets::render_environment_background(frame, &self.environment, crab_area);
+        if let Some(game) = &self.mini_game {
+            widgets::render_crab_catch(frame, game, crab_area);
+        } else {
+            // 2. Environment background (sky, sun/moon, clouds, stars)
+            widgets::render_environment_background(frame, &self.environment, crab_area);
 
-        // 3. Kani (the crab)
-        widgets::render_crab(frame, &self.crab, crab_area);
+            // 3. Kani (the crab)
+            widgets::render_crab(frame, &self.crab, crab_area);
 
-        // 4. Ground line (at bottom of crab area)
-        widgets::render_ground(frame, &self.environment, crab_area);
+            // 4. Ground line (at bottom of crab area)
+            widgets::render_ground(frame, &self.environment, crab_area);
 
-        if self.show_stats {
-            // 5. Stats panel
-            widgets::render_stats(
-                frame,
-                &self.git_stats,
-                &self.app_state,
-                self.crab.happiness,
-                chunks[2],
-            );
+            if show_stats_panel {
+                // 5. Stats panel
+                widgets::render_stats(
+                    frame,
+                    &self.git_stats,
+                    &self.app_state,
+                    self.crab.happiness,
+                    chunks[2],
+                );
+            }
         }
 
         // Render overlays
@@ -545,6 +620,41 @@ impl App {
                 self.git_stats.repo_count > 1,
                 self.show_stats,
             );
+        }
+
+        if self.show_minigame_menu {
+            widgets::render_minigame_menu(frame, area);
+        }
+
+        if let Some(score) = self.minigame_last_score {
+            widgets::render_minigame_results(frame, area, score, &self.app_state);
+        }
+    }
+
+    fn start_crab_catch(&mut self) {
+        let bounds = if self.last_terminal_size.0 > 0 && self.last_terminal_size.1 > 0 {
+            self.last_terminal_size
+        } else {
+            (self.environment.width, self.environment.height)
+        };
+        self.mini_game = Some(CrabCatchGame::new(bounds));
+        self.show_minigame_menu = false;
+        self.minigame_last_score = None;
+        self.set_temp_message("Crab Catch! 20s on the clock.");
+    }
+
+    fn finish_minigame(&mut self) {
+        if let Some(game) = self.mini_game.take() {
+            self.record_minigame_score(game.score);
+            self.minigame_last_score = Some(game.score);
+        }
+    }
+
+    fn record_minigame_score(&mut self, score: u32) {
+        self.app_state.minigame_best_scores.push(score);
+        self.app_state.minigame_best_scores.sort_by(|a, b| b.cmp(a));
+        if self.app_state.minigame_best_scores.len() > 5 {
+            self.app_state.minigame_best_scores.truncate(5);
         }
     }
 }

@@ -67,8 +67,18 @@ Kani will automatically discover git repositories in immediate subdirectories an
 | `a` | View watched repositories |
 | `d` | View commit stats (today's commits by project, weekly summary) |
 | `s` | Toggle stats panel |
+| `space` | Open mini-game menu |
 | `?` | Toggle help window |
 | `q` | Quit |
+
+### Mini Games
+
+Press `space` to open the mini-game menu. The first mini-game is Crab Catch, where you move Kani to catch falling crab snacks.
+
+| Key | Action |
+|-----|--------|
+| Arrow keys / `h` `j` `k` `l` | Move crab |
+| `q` | Exit mini-game |
 
 ### Happiness
 
