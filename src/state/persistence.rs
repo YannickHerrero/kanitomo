@@ -118,6 +118,14 @@ impl StateManager {
 
         Ok(())
     }
+
+    /// Reset state to defaults (deletes state file)
+    pub fn reset(&self) -> Result<()> {
+        if self.state_path.exists() {
+            fs::remove_file(&self.state_path).context("Failed to delete state file")?;
+        }
+        Ok(())
+    }
 }
 
 impl Default for StateManager {
