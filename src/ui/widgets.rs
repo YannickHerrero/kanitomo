@@ -110,6 +110,9 @@ pub fn render_environment_background(frame: &mut Frame, env: &Environment, area:
         Color::Gray
     };
     for cloud in &env.clouds {
+        if env.time_of_day == TimeOfDay::Night && !cloud.night_visible {
+            continue;
+        }
         let cloud_x = cloud.x.round() as i32;
         if cloud_x >= area.width as i32 || cloud_x + cloud.width as i32 <= 0 {
             continue;

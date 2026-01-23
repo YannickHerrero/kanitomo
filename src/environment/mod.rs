@@ -81,6 +81,7 @@ pub struct Cloud {
     pub speed: f32,
     pub content: Vec<String>,
     pub width: u16,
+    pub night_visible: bool,
 }
 
 /// The complete environment state
@@ -118,7 +119,7 @@ impl Environment {
         let ground_line = Self::generate_ground_line(width, style, &mut rng);
 
         // Generate moving clouds
-        let clouds = Self::generate_clouds(width, height, time_of_day, &mut rng);
+        let clouds = Self::generate_clouds(width, height, &mut rng);
 
         // Generate stars for nighttime
         let stars = if time_of_day == TimeOfDay::Night {
@@ -149,18 +150,14 @@ impl Environment {
     }
 
     /// Generate moving clouds
-    fn generate_clouds(width: u16, height: u16, time: TimeOfDay, rng: &mut impl Rng) -> Vec<Cloud> {
+    fn generate_clouds(width: u16, height: u16, rng: &mut impl Rng) -> Vec<Cloud> {
         let mut clouds = Vec::new();
 
         if height < 6 || width < 20 {
             return clouds;
         }
 
-        let cloud_count = match time {
-            TimeOfDay::Day => rng.gen_range(1..=3),
-            TimeOfDay::Morning | TimeOfDay::Evening => rng.gen_range(0..=2),
-            TimeOfDay::Night => rng.gen_range(0..=1),
-        };
+        let cloud_count = rng.gen_range(2..=4);
 
         for _ in 0..cloud_count {
             let cloud = if rng.gen_bool(0.5) {
@@ -170,9 +167,12 @@ impl Environment {
             };
 
             let cloud_width = cloud[0].len() as u16;
-            let cloud_x = rng.gen_range(0..width.saturating_sub(cloud_width)) as f32;
+            let spawn_left = -(cloud_width as f32 * rng.gen_range(1.0..2.5));
+            let spawn_right = width as f32 + cloud_width as f32;
+            let cloud_x = rng.gen_range(spawn_left..spawn_right);
             let cloud_y = rng.gen_range(0..height / 3);
             let speed = rng.gen_range(0.25..0.7); // chars/sec, slow
+            let night_visible = rng.gen_bool(0.6);
 
             clouds.push(Cloud {
                 x: cloud_x,
@@ -180,6 +180,7 @@ impl Environment {
                 speed,
                 content: cloud.iter().map(|s| s.to_string()).collect(),
                 width: cloud_width,
+                night_visible,
             });
         }
 
@@ -219,7 +220,6 @@ impl Environment {
         if new_time != self.time_of_day {
             let mut rng = rand::thread_rng();
             self.time_of_day = new_time;
-            self.clouds = Self::generate_clouds(self.width, self.height, new_time, &mut rng);
             self.stars = if new_time == TimeOfDay::Night {
                 Self::generate_stars(self.width, self.height, &mut rng)
             } else {
