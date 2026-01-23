@@ -34,10 +34,10 @@ impl TimeOfDay {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum GroundStyle {
     #[default]
-    Beach, // Sand, shells, waves
-    Garden,  // Grass, flowers
-    Rocky,   // Pebbles, stones
-    Minimal, // Simple line
+    Beach, // Coastal sand, shells, drift
+    Garden,  // Forest floor, leaves
+    Rocky,   // Riverbed stones
+    Minimal, // Meadow grass
 }
 
 impl GroundStyle {
@@ -52,13 +52,31 @@ impl GroundStyle {
         }
     }
 
-    /// Get the ground characters for this style
-    pub fn ground_chars(&self) -> &'static [char] {
+    /// Get the ground decoration chunks for this style
+    pub fn ground_chunks(&self) -> &'static [&'static str] {
         match self {
-            GroundStyle::Beach => elements::BEACH_CHARS,
-            GroundStyle::Garden => elements::GARDEN_CHARS,
-            GroundStyle::Rocky => elements::ROCKY_CHARS,
-            GroundStyle::Minimal => &[elements::MINIMAL_CHAR],
+            GroundStyle::Beach => elements::BEACH_CHUNKS,
+            GroundStyle::Garden => elements::GARDEN_CHUNKS,
+            GroundStyle::Rocky => elements::ROCKY_CHUNKS,
+            GroundStyle::Minimal => elements::MINIMAL_CHUNKS,
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            GroundStyle::Beach => GroundStyle::Garden,
+            GroundStyle::Garden => GroundStyle::Rocky,
+            GroundStyle::Rocky => GroundStyle::Minimal,
+            GroundStyle::Minimal => GroundStyle::Beach,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            GroundStyle::Beach => "Coastal",
+            GroundStyle::Garden => "Forest Floor",
+            GroundStyle::Rocky => "Riverbed",
+            GroundStyle::Minimal => "Meadow",
         }
     }
 }
@@ -143,10 +161,30 @@ impl Environment {
 
     /// Generate the ground decoration line
     fn generate_ground_line(width: u16, style: GroundStyle, rng: &mut impl Rng) -> String {
-        let chars = style.ground_chars();
-        (0..width)
-            .map(|_| *chars.choose(rng).unwrap_or(&'.'))
-            .collect()
+        if width == 0 {
+            return String::new();
+        }
+
+        let chunks = style.ground_chunks();
+        let mut line = String::new();
+        let mut length = 0usize;
+        let target = width as usize;
+
+        while length < target {
+            let chunk = chunks.choose(rng).unwrap_or(&"..");
+            let chunk_len = chunk.chars().count();
+            let remaining = target - length;
+
+            if chunk_len <= remaining {
+                line.push_str(chunk);
+                length += chunk_len;
+            } else {
+                line.extend(chunk.chars().take(remaining));
+                length = target;
+            }
+        }
+
+        line
     }
 
     /// Generate moving clouds

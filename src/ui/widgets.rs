@@ -180,16 +180,16 @@ pub fn render_ground(frame: &mut Frame, env: &Environment, area: Rect) {
     // Get ground color based on style and time
     let ground_color = match env.time_of_day {
         TimeOfDay::Night => match env.ground_style {
-            crate::environment::GroundStyle::Beach => Color::Rgb(80, 70, 50),
-            crate::environment::GroundStyle::Garden => Color::Rgb(30, 60, 30),
-            crate::environment::GroundStyle::Rocky => Color::Rgb(60, 60, 60),
-            crate::environment::GroundStyle::Minimal => Color::DarkGray,
+            crate::environment::GroundStyle::Beach => Color::Rgb(82, 72, 52),
+            crate::environment::GroundStyle::Garden => Color::Rgb(28, 64, 40),
+            crate::environment::GroundStyle::Rocky => Color::Rgb(70, 74, 78),
+            crate::environment::GroundStyle::Minimal => Color::Rgb(48, 72, 44),
         },
         _ => match env.ground_style {
-            crate::environment::GroundStyle::Beach => Color::Rgb(194, 178, 128), // Sandy
-            crate::environment::GroundStyle::Garden => Color::Rgb(34, 139, 34),  // Forest green
-            crate::environment::GroundStyle::Rocky => Color::Rgb(128, 128, 128), // Gray
-            crate::environment::GroundStyle::Minimal => Color::DarkGray,
+            crate::environment::GroundStyle::Beach => Color::Rgb(200, 183, 132),
+            crate::environment::GroundStyle::Garden => Color::Rgb(46, 128, 72),
+            crate::environment::GroundStyle::Rocky => Color::Rgb(126, 132, 138),
+            crate::environment::GroundStyle::Minimal => Color::Rgb(96, 146, 78),
         },
     };
 
@@ -402,6 +402,8 @@ pub fn render_help(
             Span::styled("feed  ", Style::default().fg(Color::DarkGray)),
             Span::styled("[p] ", Style::default().fg(Color::Yellow)),
             Span::styled("punish  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("[g] ", Style::default().fg(Color::Yellow)),
+            Span::styled("ground  ", Style::default().fg(Color::DarkGray)),
             Span::styled("[x] ", Style::default().fg(Color::Yellow)),
             Span::styled("freeze  ", Style::default().fg(Color::DarkGray)),
         ]);

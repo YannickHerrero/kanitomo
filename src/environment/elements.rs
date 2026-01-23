@@ -1,17 +1,23 @@
 //! Environment element definitions - ASCII art for ground and background
 #![allow(dead_code)] // Some elements are reserved for future use
 
-/// Ground decoration characters for Beach style
-pub const BEACH_CHARS: &[char] = &['.', ',', '~', '.', ',', '@', 'o', '.', ',', '~'];
+/// Ground decoration chunks for Beach (coastal) style
+pub const BEACH_CHUNKS: &[&str] = &[
+    "....", "..", "..", "..", ".,", ",.", "::", "~~", "~~", "o.", ".o", "o", "@", "''",
+];
 
-/// Ground decoration characters for Garden style
-pub const GARDEN_CHARS: &[char] = &['.', ',', '\'', '`', '"', '.', ',', '*', '^', '.'];
+/// Ground decoration chunks for Garden (forest floor) style
+pub const GARDEN_CHUNKS: &[&str] = &[
+    "....", "..", "..", "..", ".,", "`.", "''", "^^", "^^", "^^", "**", "++", "vv", "()",
+];
 
-/// Ground decoration characters for Rocky style
-pub const ROCKY_CHARS: &[char] = &['.', 'o', '.', 'O', '.', '^', '.', 'o', '.', '.'];
+/// Ground decoration chunks for Rocky (riverbed) style
+pub const ROCKY_CHUNKS: &[&str] = &[
+    "....", "..", "..", ".o", "o.", "oo", "O.", ".O", "O", "::", "~~", "~~",
+];
 
-/// Ground decoration characters for Minimal style
-pub const MINIMAL_CHAR: char = '-';
+/// Ground decoration chunks for Minimal (meadow) style
+pub const MINIMAL_CHUNKS: &[&str] = &["....", "...", "..", "..", "..", "..", ".,", "^^", "''"];
 
 /// Background element: Sun (for daytime)
 pub const SUN: &[&str] = &[r"  \*/  ", r"-- O --", r"  /*\  "];

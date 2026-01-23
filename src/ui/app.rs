@@ -7,7 +7,7 @@ use crate::state::{
 };
 use crate::ui::{messages, widgets};
 use anyhow::Result;
-use chrono::Local;
+use chrono::{Datelike, Local};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use ratatui::{
@@ -244,6 +244,23 @@ impl App {
                 self.fast_cycle = !self.fast_cycle;
                 let status = if self.fast_cycle { "on" } else { "off" };
                 self.set_temp_message(&format!("Fast cycle: {status}"));
+            }
+            KeyCode::Char('g') if self.debug_mode => {
+                // Cycle ground styles (debug only)
+                self.app_state.ground_style = self.app_state.ground_style.next();
+                self.app_state.ground_style_week = Local::now().iso_week().week();
+                let (width, height) =
+                    if self.last_terminal_size.0 > 0 && self.last_terminal_size.1 > 0 {
+                        self.last_terminal_size
+                    } else {
+                        (self.environment.width, self.environment.height)
+                    };
+                self.environment =
+                    Environment::generate(width, height, self.app_state.ground_style);
+                self.set_temp_message(&format!(
+                    "Ground style: {}",
+                    self.app_state.ground_style.display_name()
+                ));
             }
             _ => {}
         }
