@@ -26,7 +26,7 @@ So "Kanitomo" literally means "crab friend" - your little terminal companion tha
 - **Kani talks!** - Dynamic mood-based messages in the title bar
 - **Multi-repo support** - Run in your dev folder to watch all projects at once
 - **Commit tracking** - See today's commits per project and weekly summary
-- **Mini-games** - Take a break with Crab Catch and chase high scores
+- **Mini-games** - Take a break with Crab Catch, Snake, or Breakout and chase high scores
 - Happiness is driven by today's commits (fast early gains, slower near the top)
 - Weekends off - Kani won't get sad while you rest
 - Persistent state - Kani remembers you between sessions
@@ -74,12 +74,32 @@ Kani will automatically discover git repositories in immediate subdirectories an
 
 ### Mini Games
 
-Press `space` to open the mini-game menu. The first mini-game is Crab Catch, where you move Kani to catch falling crab snacks in a 20-second round with best scores saved.
+Press `space` to open the mini-game menu. Each game has its own leaderboard with top 100 scores tracked.
+
+#### Crab Catch
+Catch falling food with Kani in a 20-second timed round. The crab shows a happy face when catching food!
 
 | Key | Action |
 |-----|--------|
-| Arrow keys / `h` `j` `k` `l` | Move crab |
-| `q` | Exit mini-game |
+| `←` `→` / `h` `l` | Move crab left/right |
+| `q` | Exit game |
+
+#### Snake
+Classic snake game - eat food to grow, avoid walls and yourself. Speed increases as you grow longer.
+
+| Key | Action |
+|-----|--------|
+| `←` `→` `↑` `↓` / `h` `j` `k` `l` | Change direction |
+| `q` | Exit game |
+
+#### Breakout
+Break all the bricks with a bouncing ball. You have 3 lives, and higher rows are worth more points (10-50 pts). Ball speed increases as you destroy bricks.
+
+| Key | Action |
+|-----|--------|
+| `←` `→` / `h` `l` | Move paddle |
+| `space` | Launch ball |
+| `q` | Exit game |
 
 ### Happiness
 
