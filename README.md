@@ -4,7 +4,7 @@ A terminal pet crab that thrives on your git commits.
 
 ## Demo
 
-![Kanitomo Demo](assets/preview.png)
+https://github.com/user-attachments/assets/8840a134-07af-4b66-a437-713135699078
 
 *Meet Kani, your new coding companion. Feed them commits and watch them thrive!*
 
