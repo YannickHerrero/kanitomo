@@ -3,8 +3,17 @@ use rand::Rng;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-const CRAB_CATCHER_SPRITE: &str = "<(o_o)>";
 const PLAYFIELD_WIDTH: u16 = 32;
+const CRAB_SPRITE_WIDTH: u16 = 7;
+const IDLE_THRESHOLD: f32 = 0.5; // Time before crab returns to neutral
+const CATCH_CELEBRATION_TIME: f32 = 0.5; // Time to show happy face
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrabFacing {
+    Left,
+    Right,
+    Neutral,
+}
 const FOOD_CHARS: &[char] = &['o', '*', '+', '@'];
 const SPAWN_RANGE: std::ops::Range<f32> = 0.45..0.9;
 const SPEED_RANGE: std::ops::Range<f32> = 3.0..7.0;
@@ -28,13 +37,16 @@ pub struct CrabCatchGame {
     pub bounds: (u16, u16),
     pub start_time: Instant,
     pub duration: Duration,
+    pub facing: CrabFacing,
     spawn_timer: f32,
+    idle_timer: f32,
+    catch_timer: f32,
     rng: rand::rngs::ThreadRng,
 }
 
 impl CrabCatchGame {
     pub fn new(bounds: (u16, u16)) -> Self {
-        let crab_width = CRAB_CATCHER_SPRITE.len() as u16;
+        let crab_width = CRAB_SPRITE_WIDTH;
         let playfield_width = Self::playfield_width(bounds.0);
         let initial_x = playfield_width.saturating_sub(crab_width) as i32 / 2;
         let move_step = Self::move_step(playfield_width, crab_width);
@@ -49,7 +61,10 @@ impl CrabCatchGame {
             bounds: (playfield_width, bounds.1),
             start_time: Instant::now(),
             duration: Duration::from_secs(20),
+            facing: CrabFacing::Neutral,
             spawn_timer: 0.0,
+            idle_timer: 0.0,
+            catch_timer: 0.0,
             rng: rand::thread_rng(),
         };
 
@@ -58,7 +73,15 @@ impl CrabCatchGame {
     }
 
     pub fn crab_sprite(&self) -> &'static str {
-        CRAB_CATCHER_SPRITE
+        let is_happy = self.catch_timer > 0.0;
+        match (self.facing, is_happy) {
+            (CrabFacing::Neutral, false) => ">('_')<",
+            (CrabFacing::Neutral, true) => ">(^_^)<",
+            (CrabFacing::Right, false) => "(<'_')<",
+            (CrabFacing::Right, true) => "(<^_^)<",
+            (CrabFacing::Left, false) => ">('_'>)",
+            (CrabFacing::Left, true) => ">(^_^>)",
+        }
     }
 
     pub fn update_bounds(&mut self, bounds: (u16, u16)) {
@@ -84,11 +107,30 @@ impl CrabCatchGame {
         let max_x = self.bounds.0.saturating_sub(self.crab_width) as i32;
         let delta = direction * self.move_step;
         self.crab_x = (self.crab_x + delta).clamp(0, max_x);
+
+        // Update facing direction and reset idle timer
+        self.facing = if direction > 0 {
+            CrabFacing::Right
+        } else {
+            CrabFacing::Left
+        };
+        self.idle_timer = 0.0;
     }
 
     pub fn update(&mut self, dt: f32) {
         if self.bounds.0 == 0 || self.bounds.1 == 0 {
             return;
+        }
+
+        // Update idle timer - switch to neutral after threshold
+        self.idle_timer += dt;
+        if self.idle_timer >= IDLE_THRESHOLD && self.facing != CrabFacing::Neutral {
+            self.facing = CrabFacing::Neutral;
+        }
+
+        // Update catch celebration timer
+        if self.catch_timer > 0.0 {
+            self.catch_timer = (self.catch_timer - dt).max(0.0);
         }
 
         self.spawn_timer -= dt;
@@ -111,6 +153,8 @@ impl CrabCatchGame {
                 let food_x = food.x.round() as i32;
                 if food_x >= crab_min && food_x <= crab_max {
                     self.score += 1;
+                    // Trigger happy face celebration
+                    self.catch_timer = CATCH_CELEBRATION_TIME;
                 } else {
                     self.misses += 1;
                 }
