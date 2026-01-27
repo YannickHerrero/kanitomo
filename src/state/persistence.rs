@@ -54,6 +54,9 @@ pub struct AppState {
     /// Best Snake scores (highest first)
     #[serde(default)]
     pub snake_best_scores: Vec<u32>,
+    /// Best Breakout scores (highest first)
+    #[serde(default)]
+    pub breakout_best_scores: Vec<u32>,
 }
 
 fn default_version() -> u32 {
@@ -75,6 +78,7 @@ impl Default for AppState {
             ground_style_week: Local::now().iso_week().week(),
             minigame_best_scores: Vec::new(),
             snake_best_scores: Vec::new(),
+            breakout_best_scores: Vec::new(),
         }
     }
 }

@@ -2,7 +2,7 @@ use crate::crab::Crab;
 use crate::environment::{Environment, TimeOfDay};
 use crate::git::{format_time_ago, CommitInfo, GitStats};
 use crate::state::{get_today_by_project, get_week_summary, AppState};
-use crate::ui::minigames::SnakeGame;
+use crate::ui::minigames::{BreakoutGame, SnakeGame};
 use crate::ui::CrabCatchGame;
 use chrono::Datelike;
 use ratatui::{
@@ -359,10 +359,14 @@ pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
         Span::styled("  [2] ", Style::default().fg(Color::Yellow)),
         Span::styled("Snake", Style::default().fg(Color::White)),
     ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [3] ", Style::default().fg(Color::Yellow)),
+        Span::styled("Breakout", Style::default().fg(Color::White)),
+    ]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  Press [1] or [2] to start",
+        "  Press [1], [2], or [3] to start",
         Style::default().fg(Color::DarkGray),
     )]));
     lines.push(Line::from(vec![Span::styled(
@@ -784,6 +788,289 @@ pub fn render_snake_results(frame: &mut Frame, area: Rect, score: u32, app_state
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::styled(format!(" {:>3}", best), Style::default().fg(Color::White)),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [space] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let overlay_width = 36.min(area.width.saturating_sub(4));
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    frame.render_widget(Clear, overlay_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Results ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
+}
+
+/// Render the breakout mini-game
+pub fn render_breakout_game(frame: &mut Frame, game: &BreakoutGame, area: Rect) {
+    if area.width == 0 || area.height < 4 {
+        return;
+    }
+
+    let inner_width = game.bounds.0.min(area.width.saturating_sub(2)).max(1);
+    let inner_height = game.bounds.1.min(area.height.saturating_sub(2)).max(1);
+    let play_width = inner_width.saturating_add(2);
+    let play_height = inner_height.saturating_add(2);
+    let play_x = area.x + (area.width.saturating_sub(play_width) / 2);
+    let play_y = area.y + (area.height.saturating_sub(play_height) / 2);
+
+    let play_area = Rect {
+        x: play_x,
+        y: play_y,
+        width: play_width,
+        height: play_height,
+    };
+
+    // Draw border
+    let border_style = Style::default().fg(Color::DarkGray);
+
+    // Top and bottom borders
+    let horizontal_border = "-".repeat(play_width as usize);
+    let top_border_area = Rect {
+        x: play_area.x,
+        y: play_area.y,
+        width: play_width,
+        height: 1,
+    };
+    let bottom_border_area = Rect {
+        x: play_area.x,
+        y: play_area.y + play_height.saturating_sub(1),
+        width: play_width,
+        height: 1,
+    };
+    frame.render_widget(
+        Paragraph::new(horizontal_border.clone()).style(border_style),
+        top_border_area,
+    );
+    frame.render_widget(
+        Paragraph::new(horizontal_border).style(border_style),
+        bottom_border_area,
+    );
+
+    // Left and right borders
+    for dy in 1..play_height.saturating_sub(1) {
+        let left_wall = Rect {
+            x: play_area.x,
+            y: play_area.y + dy,
+            width: 1,
+            height: 1,
+        };
+        let right_wall = Rect {
+            x: play_area.x + play_width.saturating_sub(1),
+            y: play_area.y + dy,
+            width: 1,
+            height: 1,
+        };
+        frame.render_widget(Paragraph::new("|").style(border_style), left_wall);
+        frame.render_widget(Paragraph::new("|").style(border_style), right_wall);
+    }
+
+    // Draw bricks
+    for brick in &game.bricks {
+        let brick_x = play_area.x + 1 + brick.x;
+        let brick_y = play_area.y + 1 + brick.y;
+
+        if brick_x + brick.width > play_area.x + play_width.saturating_sub(1)
+            || brick_y >= play_area.y + play_height.saturating_sub(1)
+        {
+            continue;
+        }
+
+        // Color based on point value
+        let brick_color = match brick.points {
+            50 => Color::Red,
+            40 => Color::LightRed,
+            30 => Color::Yellow,
+            20 => Color::Green,
+            _ => Color::Cyan,
+        };
+
+        let brick_area = Rect {
+            x: brick_x,
+            y: brick_y,
+            width: brick.width.min(play_area.x + play_width - brick_x - 1),
+            height: 1,
+        };
+
+        let brick_str = "=".repeat(brick.width as usize);
+        let brick_widget = Paragraph::new(brick_str).style(
+            Style::default()
+                .fg(brick_color)
+                .add_modifier(Modifier::BOLD),
+        );
+        frame.render_widget(brick_widget, brick_area);
+    }
+
+    // Draw ball
+    let ball_x = play_area.x + 1 + game.ball_pos.0.round().max(0.0) as u16;
+    let ball_y = play_area.y + 1 + game.ball_pos.1.round().max(0.0) as u16;
+    if ball_x < play_area.x + play_width.saturating_sub(1)
+        && ball_y < play_area.y + play_height.saturating_sub(1)
+    {
+        let ball_area = Rect {
+            x: ball_x,
+            y: ball_y,
+            width: 1,
+            height: 1,
+        };
+        let ball_widget = Paragraph::new("o").style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        );
+        frame.render_widget(ball_widget, ball_area);
+    }
+
+    // Draw paddle
+    let paddle_x = play_area.x + 1 + game.paddle_x.round().max(0.0) as u16;
+    let paddle_y = play_area.y + play_height.saturating_sub(2);
+    if paddle_x + game.paddle_width <= play_area.x + play_width.saturating_sub(1) {
+        let paddle_area = Rect {
+            x: paddle_x,
+            y: paddle_y,
+            width: game.paddle_width,
+            height: 1,
+        };
+        let paddle_str = "=".repeat(game.paddle_width as usize);
+        let paddle_widget = Paragraph::new(paddle_str).style(
+            Style::default()
+                .fg(Color::Rgb(255, 120, 80))
+                .add_modifier(Modifier::BOLD),
+        );
+        frame.render_widget(paddle_widget, paddle_area);
+    }
+
+    // Draw HUD
+    let lives_str: String = (0..game.lives).map(|_| "♥").collect();
+    let hud_lines = vec![
+        Line::from(vec![Span::styled(
+            "  Breakout",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.score.to_string(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Lives: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                lives_str,
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+        ]),
+    ];
+
+    let hud_width = 20.min(area.width.saturating_sub(2));
+    let hud_area = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: hud_width.max(1),
+        height: 5.min(area.height.saturating_sub(2)),
+    };
+
+    let hud_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    let hud_widget = Paragraph::new(hud_lines).block(hud_block);
+    frame.render_widget(hud_widget, hud_area);
+
+    // Show launch prompt if ball not launched
+    if !game.ball_launched {
+        let prompt = "Press SPACE to launch";
+        let prompt_x = play_area.x + (play_width.saturating_sub(prompt.len() as u16)) / 2;
+        let prompt_y = play_area.y + play_height / 2;
+        let prompt_area = Rect {
+            x: prompt_x,
+            y: prompt_y,
+            width: prompt.len() as u16,
+            height: 1,
+        };
+        let prompt_widget = Paragraph::new(prompt).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+        frame.render_widget(prompt_widget, prompt_area);
+    }
+}
+
+/// Render the breakout game results screen
+pub fn render_breakout_results(
+    frame: &mut Frame,
+    area: Rect,
+    score: u32,
+    victory: bool,
+    app_state: &AppState,
+) {
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    let title = if victory { "  VICTORY!" } else { "  GAME OVER" };
+    let title_color = if victory { Color::Green } else { Color::Red };
+
+    lines.push(Line::from(vec![Span::styled(
+        title,
+        Style::default()
+            .fg(title_color)
+            .add_modifier(Modifier::BOLD),
+    )]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            score.to_string(),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  BEST SCORES",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    if app_state.breakout_best_scores.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "  No scores yet",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]));
+    } else {
+        for (index, best) in app_state.breakout_best_scores.iter().take(5).enumerate() {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  {}.", index + 1),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(format!(" {:>4}", best), Style::default().fg(Color::White)),
             ]));
         }
     }
