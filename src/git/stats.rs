@@ -1,7 +1,127 @@
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, TimeZone};
 use git2::Repository;
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+/// Information about a commit from git log (for the commit picker)
+#[derive(Debug, Clone)]
+pub struct CommitInfo {
+    /// Full commit hash
+    pub hash: String,
+    /// Short commit hash (7 chars)
+    pub short_hash: String,
+    /// Commit message (first line)
+    pub message: String,
+    /// Commit timestamp
+    pub timestamp: DateTime<Local>,
+    /// Project identifier (remote URL or absolute path)
+    pub project_id: String,
+    /// Project display name (folder name)
+    pub project_name: String,
+}
+
+/// Get the list of commits from the current repository
+/// Returns up to `limit` commits from the git log
+pub fn get_repo_commits(limit: usize) -> Vec<CommitInfo> {
+    let repo = match Repository::discover(".") {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+
+    let project_id = get_project_id_from_repo(&repo);
+    let project_name = get_project_name_from_repo(&repo);
+
+    let mut commits = Vec::new();
+
+    // Get HEAD reference
+    let head = match repo.head() {
+        Ok(h) => h,
+        Err(_) => return commits,
+    };
+
+    let oid = match head.target() {
+        Some(o) => o,
+        None => return commits,
+    };
+
+    // Create a revwalk to iterate through commits
+    let mut revwalk = match repo.revwalk() {
+        Ok(r) => r,
+        Err(_) => return commits,
+    };
+
+    if revwalk.push(oid).is_err() {
+        return commits;
+    }
+
+    // Set sorting to reverse chronological (newest first)
+    revwalk.set_sorting(git2::Sort::TIME).ok();
+
+    for (count, oid_result) in revwalk.enumerate() {
+        if count >= limit {
+            break;
+        }
+
+        let oid = match oid_result {
+            Ok(o) => o,
+            Err(_) => continue,
+        };
+
+        let commit = match repo.find_commit(oid) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let hash = oid.to_string();
+        let short_hash = hash.chars().take(7).collect();
+
+        let message = commit
+            .message()
+            .unwrap_or("")
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_string();
+
+        let timestamp = Local
+            .timestamp_opt(commit.time().seconds(), 0)
+            .single()
+            .unwrap_or_else(Local::now);
+
+        commits.push(CommitInfo {
+            hash,
+            short_hash,
+            message,
+            timestamp,
+            project_id: project_id.clone(),
+            project_name: project_name.clone(),
+        });
+    }
+
+    commits
+}
+
+/// Get project ID from a repository
+fn get_project_id_from_repo(repo: &Repository) -> String {
+    repo.find_remote("origin")
+        .ok()
+        .and_then(|remote| remote.url().map(|s| s.to_string()))
+        .unwrap_or_else(|| {
+            repo.workdir()
+                .map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        })
+}
+
+/// Get project name from a repository
+fn get_project_name_from_repo(repo: &Repository) -> String {
+    repo.workdir()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
 
 /// Information about a detected commit
 #[derive(Debug, Clone)]

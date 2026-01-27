@@ -1,6 +1,6 @@
 use crate::crab::{Crab, Mood};
 use crate::environment::Environment;
-use crate::git::{DetectedCommit, GitStats, GitTracker};
+use crate::git::{get_repo_commits, CommitInfo, DetectedCommit, GitStats, GitTracker};
 use crate::state::{
     calculate_happiness_from_commits, calculate_streak_from_history, get_today_commit_count,
     AppState, StateManager, TrackedCommit,
@@ -69,6 +69,14 @@ pub struct App {
     mini_game: Option<CrabCatchGame>,
     /// Last mini-game score (for results screen)
     minigame_last_score: Option<u32>,
+    /// Whether to show the commit picker overlay (debug only)
+    pub show_commit_picker: bool,
+    /// List of commits from git log for the commit picker
+    pub commit_picker_items: Vec<CommitInfo>,
+    /// Currently selected index in the commit picker
+    pub commit_picker_selected: usize,
+    /// Scroll offset for the commit picker list
+    pub commit_picker_scroll: usize,
 }
 
 impl App {
@@ -147,6 +155,10 @@ impl App {
             show_minigame_menu: false,
             mini_game: None,
             minigame_last_score: None,
+            show_commit_picker: false,
+            commit_picker_items: Vec::new(),
+            commit_picker_selected: 0,
+            commit_picker_scroll: 0,
         })
     }
 
@@ -220,6 +232,45 @@ impl App {
                 }
                 KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc => {
                     self.show_minigame_menu = false;
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        // Handle commit picker input (debug mode only)
+        if self.show_commit_picker {
+            match key {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if self.commit_picker_selected > 0 {
+                        self.commit_picker_selected -= 1;
+                        // Adjust scroll if selection goes above visible area
+                        if self.commit_picker_selected < self.commit_picker_scroll {
+                            self.commit_picker_scroll = self.commit_picker_selected;
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if self.commit_picker_selected
+                        < self.commit_picker_items.len().saturating_sub(1)
+                    {
+                        self.commit_picker_selected += 1;
+                        // Adjust scroll if selection goes below visible area (assume ~15 visible)
+                        let visible_items = 15;
+                        if self.commit_picker_selected >= self.commit_picker_scroll + visible_items
+                        {
+                            self.commit_picker_scroll = self
+                                .commit_picker_selected
+                                .saturating_sub(visible_items - 1);
+                        }
+                    }
+                }
+                KeyCode::Char(' ') | KeyCode::Enter => {
+                    // Toggle the selected commit
+                    self.toggle_selected_commit();
+                }
+                KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('m') => {
+                    self.show_commit_picker = false;
                 }
                 _ => {}
             }
@@ -330,6 +381,22 @@ impl App {
                     "Ground style: {}",
                     self.app_state.ground_style.display_name()
                 ));
+            }
+            KeyCode::Char('m') if self.debug_mode => {
+                // Toggle commit picker (debug only)
+                if self.show_commit_picker {
+                    self.show_commit_picker = false;
+                } else {
+                    // Load commits from the current repo
+                    self.commit_picker_items = get_repo_commits(50);
+                    self.commit_picker_selected = 0;
+                    self.commit_picker_scroll = 0;
+                    self.show_commit_picker = true;
+                    // Close other overlays
+                    self.show_repo_list = false;
+                    self.show_details = false;
+                    self.show_help = false;
+                }
             }
             _ => {}
         }
@@ -629,6 +696,18 @@ impl App {
         if let Some(score) = self.minigame_last_score {
             widgets::render_minigame_results(frame, area, score, &self.app_state);
         }
+
+        // Render commit picker overlay (debug mode only)
+        if self.show_commit_picker {
+            widgets::render_commit_picker(
+                frame,
+                &self.commit_picker_items,
+                self.commit_picker_selected,
+                self.commit_picker_scroll,
+                |hash| self.is_commit_tracked(hash),
+                area,
+            );
+        }
     }
 
     fn start_crab_catch(&mut self) {
@@ -655,6 +734,55 @@ impl App {
         self.app_state.minigame_best_scores.sort_by(|a, b| b.cmp(a));
         if self.app_state.minigame_best_scores.len() > 5 {
             self.app_state.minigame_best_scores.truncate(5);
+        }
+    }
+
+    /// Check if a commit hash is already tracked in the commit history
+    pub fn is_commit_tracked(&self, hash: &str) -> bool {
+        self.app_state
+            .commit_history
+            .iter()
+            .any(|c| c.commit_hash == hash)
+    }
+
+    /// Toggle the currently selected commit in the commit picker
+    fn toggle_selected_commit(&mut self) {
+        if self.commit_picker_items.is_empty() {
+            return;
+        }
+
+        let commit = &self.commit_picker_items[self.commit_picker_selected];
+        let hash = commit.hash.clone();
+
+        if self.is_commit_tracked(&hash) {
+            // Remove the commit from history
+            self.app_state
+                .commit_history
+                .retain(|c| c.commit_hash != hash);
+            self.sync_last_commit_time();
+            self.sync_happiness_from_commits();
+            self.set_temp_message("Commit removed from history");
+        } else {
+            // Add the commit to history
+            let tracked = TrackedCommit {
+                timestamp: commit.timestamp,
+                commit_hash: commit.hash.clone(),
+                project_id: commit.project_id.clone(),
+                project_name: commit.project_name.clone(),
+            };
+            self.app_state.commit_history.push(tracked);
+            self.app_state.last_commit_time = Some(commit.timestamp);
+
+            // Recalculate streak
+            self.app_state.current_streak =
+                calculate_streak_from_history(&self.app_state.commit_history);
+            if self.app_state.current_streak > self.app_state.best_streak {
+                self.app_state.best_streak = self.app_state.current_streak;
+            }
+
+            self.sync_happiness_from_commits();
+            self.crab.celebrate();
+            self.set_temp_message("Commit added to history");
         }
     }
 }

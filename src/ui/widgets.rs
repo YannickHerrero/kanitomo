@@ -1,6 +1,6 @@
 use crate::crab::Crab;
 use crate::environment::{Environment, TimeOfDay};
-use crate::git::{format_time_ago, GitStats};
+use crate::git::{format_time_ago, CommitInfo, GitStats};
 use crate::state::{get_today_by_project, get_week_summary, AppState};
 use crate::ui::CrabCatchGame;
 use chrono::Datelike;
@@ -684,6 +684,10 @@ pub fn render_help_overlay(
             Span::styled("  [c] ", Style::default().fg(Color::Yellow)),
             Span::styled("fast cycle", Style::default().fg(Color::White)),
         ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [m] ", Style::default().fg(Color::Yellow)),
+            Span::styled("commit picker", Style::default().fg(Color::White)),
+        ]));
     }
 
     lines.push(Line::from(""));
@@ -960,6 +964,142 @@ pub fn render_details_overlay(frame: &mut Frame, app_state: &AppState, area: Rec
             " Activity Details ",
             Style::default()
                 .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
+}
+
+/// Render the commit picker overlay (debug mode only)
+pub fn render_commit_picker(
+    frame: &mut Frame,
+    commits: &[CommitInfo],
+    selected: usize,
+    scroll: usize,
+    is_tracked_fn: impl Fn(&str) -> bool,
+    area: Rect,
+) {
+    let overlay_width = 70.min(area.width.saturating_sub(4));
+    let overlay_height = 22.min(area.height.saturating_sub(4));
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    // Clear the area behind the overlay
+    frame.render_widget(Clear, overlay_area);
+
+    let mut lines: Vec<Line> = vec![];
+
+    // Header
+    lines.push(Line::from(vec![Span::styled(
+        "  COMMIT PICKER (Debug)",
+        Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::BOLD),
+    )]));
+    lines.push(Line::from(""));
+
+    if commits.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "  No commits found in this repository",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]));
+    } else {
+        // Calculate visible items (leave room for header, footer, and instructions)
+        let visible_items = (overlay_height as usize).saturating_sub(8);
+        let end_index = (scroll + visible_items).min(commits.len());
+
+        for (i, commit) in commits.iter().enumerate().skip(scroll).take(visible_items) {
+            let is_selected = i == selected;
+            let is_tracked = is_tracked_fn(&commit.hash);
+
+            // Checkbox
+            let checkbox = if is_tracked { "[x]" } else { "[ ]" };
+
+            // Format time ago
+            let time_ago = format_time_ago(Some(commit.timestamp));
+
+            // Truncate message to fit
+            let max_msg_len = (overlay_width as usize).saturating_sub(30);
+            let message = truncate_str(&commit.message, max_msg_len);
+
+            // Build the line with different styles based on selection
+            let (prefix_style, hash_style, msg_style, time_style) = if is_selected {
+                (
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else {
+                (
+                    Style::default().fg(if is_tracked {
+                        Color::Green
+                    } else {
+                        Color::DarkGray
+                    }),
+                    Style::default().fg(Color::Cyan),
+                    Style::default().fg(Color::White),
+                    Style::default().fg(Color::DarkGray),
+                )
+            };
+
+            let prefix = if is_selected { "> " } else { "  " };
+
+            lines.push(Line::from(vec![
+                Span::styled(prefix, prefix_style),
+                Span::styled(checkbox, prefix_style),
+                Span::styled(" ", Style::default()),
+                Span::styled(&commit.short_hash, hash_style),
+                Span::styled(" ", Style::default()),
+                Span::styled(message, msg_style),
+                Span::styled(format!(" {}", time_ago), time_style),
+            ]));
+        }
+
+        // Show scroll indicator if there are more items
+        if commits.len() > visible_items {
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![Span::styled(
+                format!(
+                    "  Showing {}-{} of {} commits",
+                    scroll + 1,
+                    end_index,
+                    commits.len()
+                ),
+                Style::default().fg(Color::DarkGray),
+            )]));
+        }
+    }
+
+    // Footer with instructions
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  ", Style::default()),
+        Span::styled("j/k", Style::default().fg(Color::Yellow)),
+        Span::styled(" navigate  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("Space", Style::default().fg(Color::Yellow)),
+        Span::styled(" toggle  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("m/Esc", Style::default().fg(Color::Yellow)),
+        Span::styled(" close", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta))
+        .title(Span::styled(
+            " Commit Picker ",
+            Style::default()
+                .fg(Color::Magenta)
                 .add_modifier(Modifier::BOLD),
         ));
 
