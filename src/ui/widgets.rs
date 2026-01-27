@@ -2,6 +2,7 @@ use crate::crab::Crab;
 use crate::environment::{Environment, TimeOfDay};
 use crate::git::{format_time_ago, CommitInfo, GitStats};
 use crate::state::{get_today_by_project, get_week_summary, AppState};
+use crate::ui::minigames::SnakeGame;
 use crate::ui::CrabCatchGame;
 use chrono::Datelike;
 use ratatui::{
@@ -354,10 +355,14 @@ pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
         Span::styled("  [1] ", Style::default().fg(Color::Yellow)),
         Span::styled("Crab Catch", Style::default().fg(Color::White)),
     ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [2] ", Style::default().fg(Color::Yellow)),
+        Span::styled("Snake", Style::default().fg(Color::White)),
+    ]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  Press [1] or [enter] to start",
+        "  Press [1] or [2] to start",
         Style::default().fg(Color::DarkGray),
     )]));
     lines.push(Line::from(vec![Span::styled(
@@ -572,6 +577,241 @@ pub fn render_crab_catch(frame: &mut Frame, game: &CrabCatchGame, area: Rect) {
             frame.render_widget(Paragraph::new("|").style(wall_style), right_wall);
         }
     }
+}
+
+/// Render the snake mini-game
+pub fn render_snake_game(frame: &mut Frame, game: &SnakeGame, area: Rect) {
+    if area.width == 0 || area.height < 2 {
+        return;
+    }
+
+    let inner_width = game.bounds.0.min(area.width.saturating_sub(2)).max(1);
+    let inner_height = game.bounds.1.min(area.height.saturating_sub(2)).max(1);
+    let play_width = inner_width.saturating_add(2);
+    let play_height = inner_height.saturating_add(2);
+    let play_x = area.x + (area.width.saturating_sub(play_width) / 2);
+    let play_y = area.y + (area.height.saturating_sub(play_height) / 2);
+
+    let play_area = Rect {
+        x: play_x,
+        y: play_y,
+        width: play_width,
+        height: play_height,
+    };
+
+    // Draw border
+    let border_style = Style::default().fg(Color::DarkGray);
+
+    // Top and bottom borders
+    let horizontal_border = "-".repeat(play_width as usize);
+    let top_border_area = Rect {
+        x: play_area.x,
+        y: play_area.y,
+        width: play_width,
+        height: 1,
+    };
+    let bottom_border_area = Rect {
+        x: play_area.x,
+        y: play_area.y + play_height.saturating_sub(1),
+        width: play_width,
+        height: 1,
+    };
+    frame.render_widget(
+        Paragraph::new(horizontal_border.clone()).style(border_style),
+        top_border_area,
+    );
+    frame.render_widget(
+        Paragraph::new(horizontal_border).style(border_style),
+        bottom_border_area,
+    );
+
+    // Left and right borders
+    for dy in 1..play_height.saturating_sub(1) {
+        let left_wall = Rect {
+            x: play_area.x,
+            y: play_area.y + dy,
+            width: 1,
+            height: 1,
+        };
+        let right_wall = Rect {
+            x: play_area.x + play_width.saturating_sub(1),
+            y: play_area.y + dy,
+            width: 1,
+            height: 1,
+        };
+        frame.render_widget(Paragraph::new("|").style(border_style), left_wall);
+        frame.render_widget(Paragraph::new("|").style(border_style), right_wall);
+    }
+
+    // Draw food
+    let food_x = play_area.x + 1 + game.food.0 as u16;
+    let food_y = play_area.y + 1 + game.food.1 as u16;
+    if food_x < play_area.x + play_width.saturating_sub(1)
+        && food_y < play_area.y + play_height.saturating_sub(1)
+    {
+        let food_area = Rect {
+            x: food_x,
+            y: food_y,
+            width: 1,
+            height: 1,
+        };
+        let food_widget = Paragraph::new("@").style(
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        );
+        frame.render_widget(food_widget, food_area);
+    }
+
+    // Draw snake
+    for (i, segment) in game.snake.iter().enumerate() {
+        let seg_x = play_area.x + 1 + segment.0 as u16;
+        let seg_y = play_area.y + 1 + segment.1 as u16;
+
+        if seg_x >= play_area.x + play_width.saturating_sub(1)
+            || seg_y >= play_area.y + play_height.saturating_sub(1)
+        {
+            continue;
+        }
+
+        let seg_area = Rect {
+            x: seg_x,
+            y: seg_y,
+            width: 1,
+            height: 1,
+        };
+
+        let (char, style) = if i == 0 {
+            // Head
+            (
+                "#",
+                Style::default()
+                    .fg(Color::Rgb(255, 120, 80))
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            // Body
+            ("o", Style::default().fg(Color::Rgb(200, 100, 60)))
+        };
+
+        frame.render_widget(Paragraph::new(char).style(style), seg_area);
+    }
+
+    // Draw HUD
+    let hud_lines = vec![
+        Line::from(vec![Span::styled(
+            "  Snake",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.score.to_string(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Length: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.snake.len().to_string(),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+    ];
+
+    let hud_width = 20.min(area.width.saturating_sub(2));
+    let hud_area = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: hud_width.max(1),
+        height: 5.min(area.height.saturating_sub(2)),
+    };
+
+    let hud_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    let hud_widget = Paragraph::new(hud_lines).block(hud_block);
+    frame.render_widget(hud_widget, hud_area);
+}
+
+/// Render the snake game results screen
+pub fn render_snake_results(frame: &mut Frame, area: Rect, score: u32, app_state: &AppState) {
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    lines.push(Line::from(vec![Span::styled(
+        "  SNAKE RESULTS",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            score.to_string(),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  BEST SCORES",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    if app_state.snake_best_scores.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "  No scores yet",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]));
+    } else {
+        for (index, best) in app_state.snake_best_scores.iter().take(5).enumerate() {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  {}.", index + 1),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(format!(" {:>3}", best), Style::default().fg(Color::White)),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [space] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let overlay_width = 36.min(area.width.saturating_sub(4));
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    frame.render_widget(Clear, overlay_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Results ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
 }
 
 /// Render a happiness bar

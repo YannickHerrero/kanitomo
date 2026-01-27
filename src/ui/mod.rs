@@ -1,6 +1,6 @@
 mod app;
 mod messages;
-mod minigames;
+pub mod minigames;
 mod widgets;
 
 pub use app::App;

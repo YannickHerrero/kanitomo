@@ -5,6 +5,7 @@ use crate::state::{
     calculate_happiness_from_commits, calculate_streak_from_history, get_today_commit_count,
     AppState, StateManager, TrackedCommit,
 };
+use crate::ui::minigames::{Direction as SnakeDirection, SnakeGame};
 use crate::ui::{messages, widgets, CrabCatchGame};
 use anyhow::Result;
 use chrono::{Datelike, Local};
@@ -65,10 +66,14 @@ pub struct App {
     fast_cycle: bool,
     /// Whether to show the mini-game selection menu
     show_minigame_menu: bool,
-    /// Active mini-game state
+    /// Active Crab Catch game state
     mini_game: Option<CrabCatchGame>,
-    /// Last mini-game score (for results screen)
+    /// Last Crab Catch score (for results screen)
     minigame_last_score: Option<u32>,
+    /// Active Snake game state
+    snake_game: Option<SnakeGame>,
+    /// Last Snake score (for results screen)
+    snake_last_score: Option<u32>,
     /// Whether to show the commit picker overlay (debug only)
     pub show_commit_picker: bool,
     /// List of commits from git log for the commit picker
@@ -155,6 +160,8 @@ impl App {
             show_minigame_menu: false,
             mini_game: None,
             minigame_last_score: None,
+            snake_game: None,
+            snake_last_score: None,
             show_commit_picker: false,
             commit_picker_items: Vec::new(),
             commit_picker_selected: 0,
@@ -199,16 +206,19 @@ impl App {
 
     /// Handle keyboard input
     fn handle_key(&mut self, key: KeyCode) {
-        if self.minigame_last_score.is_some() {
+        // Handle results screens
+        if self.minigame_last_score.is_some() || self.snake_last_score.is_some() {
             match key {
                 KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => {
                     self.minigame_last_score = None;
+                    self.snake_last_score = None;
                 }
                 _ => {}
             }
             return;
         }
 
+        // Handle active Crab Catch game
         if let Some(game) = self.mini_game.as_mut() {
             match key {
                 KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('j') => {
@@ -225,10 +235,36 @@ impl App {
             return;
         }
 
+        // Handle active Snake game
+        if let Some(game) = self.snake_game.as_mut() {
+            match key {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    game.set_direction(SnakeDirection::Up);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    game.set_direction(SnakeDirection::Down);
+                }
+                KeyCode::Left | KeyCode::Char('h') => {
+                    game.set_direction(SnakeDirection::Left);
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    game.set_direction(SnakeDirection::Right);
+                }
+                KeyCode::Char('q') | KeyCode::Esc => {
+                    self.finish_snake_game();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.show_minigame_menu {
             match key {
-                KeyCode::Char('1') | KeyCode::Enter => {
+                KeyCode::Char('1') => {
                     self.start_crab_catch();
+                }
+                KeyCode::Char('2') => {
+                    self.start_snake();
                 }
                 KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc => {
                     self.show_minigame_menu = false;
@@ -419,15 +455,32 @@ impl App {
             }
             game.is_finished()
         } else {
-            if bounds.0 > 0.0 && bounds.1 > 0.0 {
-                // Update crab animation (only if we have valid bounds)
-                self.crab.update(dt, bounds);
-            }
             false
         };
 
+        let snake_finished = if let Some(game) = self.snake_game.as_mut() {
+            let size = self.last_terminal_size;
+            if size.0 > 0 && size.1 > 0 {
+                game.update_bounds(size);
+                game.update(dt);
+            }
+            game.is_finished()
+        } else {
+            false
+        };
+
+        // Update crab only if no game is active
+        if self.mini_game.is_none() && self.snake_game.is_none() && bounds.0 > 0.0 && bounds.1 > 0.0
+        {
+            self.crab.update(dt, bounds);
+        }
+
         if minigame_finished {
             self.finish_minigame();
+        }
+
+        if snake_finished {
+            self.finish_snake_game();
         }
 
         // Check for file system events (new commits)
@@ -606,7 +659,8 @@ impl App {
     /// Draw the UI
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
-        let show_stats_panel = self.show_stats && self.mini_game.is_none();
+        let any_game_active = self.mini_game.is_some() || self.snake_game.is_some();
+        let show_stats_panel = self.show_stats && !any_game_active;
 
         // Layout: Title | Crab Area | Stats (optional)
         let mut constraints = vec![
@@ -636,7 +690,7 @@ impl App {
             self.last_terminal_size = current_size;
         }
 
-        if self.mini_game.is_none() {
+        if !any_game_active {
             // Update crab bounds based on actual crab area size
             let crab_bounds = (crab_area.width as f32 - 2.0, crab_area.height as f32);
             self.crab.update(0.0, crab_bounds); // Update bounds without time delta
@@ -648,6 +702,8 @@ impl App {
 
         if let Some(game) = &self.mini_game {
             widgets::render_crab_catch(frame, game, crab_area);
+        } else if let Some(game) = &self.snake_game {
+            widgets::render_snake_game(frame, game, crab_area);
         } else {
             // 2. Environment background (sky, sun/moon, clouds, stars)
             widgets::render_environment_background(frame, &self.environment, crab_area);
@@ -697,6 +753,10 @@ impl App {
             widgets::render_minigame_results(frame, area, score, &self.app_state);
         }
 
+        if let Some(score) = self.snake_last_score {
+            widgets::render_snake_results(frame, area, score, &self.app_state);
+        }
+
         // Render commit picker overlay (debug mode only)
         if self.show_commit_picker {
             widgets::render_commit_picker(
@@ -734,6 +794,33 @@ impl App {
         self.app_state.minigame_best_scores.sort_by(|a, b| b.cmp(a));
         if self.app_state.minigame_best_scores.len() > 5 {
             self.app_state.minigame_best_scores.truncate(5);
+        }
+    }
+
+    fn start_snake(&mut self) {
+        let bounds = if self.last_terminal_size.0 > 0 && self.last_terminal_size.1 > 0 {
+            self.last_terminal_size
+        } else {
+            (self.environment.width, self.environment.height)
+        };
+        self.snake_game = Some(SnakeGame::new(bounds));
+        self.show_minigame_menu = false;
+        self.snake_last_score = None;
+        self.set_temp_message("Snake! Eat food to grow. Don't hit the walls!");
+    }
+
+    fn finish_snake_game(&mut self) {
+        if let Some(game) = self.snake_game.take() {
+            self.record_snake_score(game.score);
+            self.snake_last_score = Some(game.score);
+        }
+    }
+
+    fn record_snake_score(&mut self, score: u32) {
+        self.app_state.snake_best_scores.push(score);
+        self.app_state.snake_best_scores.sort_by(|a, b| b.cmp(a));
+        if self.app_state.snake_best_scores.len() > 5 {
+            self.app_state.snake_best_scores.truncate(5);
         }
     }
 
