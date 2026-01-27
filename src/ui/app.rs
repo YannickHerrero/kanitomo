@@ -851,8 +851,8 @@ impl App {
     fn record_minigame_score(&mut self, score: u32) {
         self.app_state.minigame_best_scores.push(score);
         self.app_state.minigame_best_scores.sort_by(|a, b| b.cmp(a));
-        if self.app_state.minigame_best_scores.len() > 5 {
-            self.app_state.minigame_best_scores.truncate(5);
+        if self.app_state.minigame_best_scores.len() > 100 {
+            self.app_state.minigame_best_scores.truncate(100);
         }
     }
 
@@ -878,8 +878,8 @@ impl App {
     fn record_snake_score(&mut self, score: u32) {
         self.app_state.snake_best_scores.push(score);
         self.app_state.snake_best_scores.sort_by(|a, b| b.cmp(a));
-        if self.app_state.snake_best_scores.len() > 5 {
-            self.app_state.snake_best_scores.truncate(5);
+        if self.app_state.snake_best_scores.len() > 100 {
+            self.app_state.snake_best_scores.truncate(100);
         }
     }
 
@@ -905,8 +905,8 @@ impl App {
     fn record_breakout_score(&mut self, score: u32) {
         self.app_state.breakout_best_scores.push(score);
         self.app_state.breakout_best_scores.sort_by(|a, b| b.cmp(a));
-        if self.app_state.breakout_best_scores.len() > 5 {
-            self.app_state.breakout_best_scores.truncate(5);
+        if self.app_state.breakout_best_scores.len() > 100 {
+            self.app_state.breakout_best_scores.truncate(100);
         }
     }
 

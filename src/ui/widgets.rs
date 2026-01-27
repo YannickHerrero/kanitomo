@@ -394,30 +394,31 @@ pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
     frame.render_widget(paragraph, overlay_area);
 }
 
+/// Calculate the rank of a score in a sorted (descending) score list
+/// Ties get the best (lowest) rank number
+fn calculate_rank(scores: &[u32], current_score: u32) -> usize {
+    scores
+        .iter()
+        .position(|&s| s <= current_score)
+        .map(|p| p + 1)
+        .unwrap_or(scores.len() + 1)
+}
+
 /// Render the mini-game results screen
 pub fn render_minigame_results(frame: &mut Frame, area: Rect, score: u32, app_state: &AppState) {
     let mut lines: Vec<Line> = vec![Line::from("")];
 
     lines.push(Line::from(vec![Span::styled(
-        "  CRAB CATCH RESULTS",
+        "  CRAB CATCH",
         Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD),
     )]));
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            score.to_string(),
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ]));
 
+    // Top 3 scores
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  BEST SCORES",
+        "  TOP SCORES",
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD),
@@ -431,16 +432,34 @@ pub fn render_minigame_results(frame: &mut Frame, area: Rect, score: u32, app_st
                 .add_modifier(Modifier::ITALIC),
         )]));
     } else {
-        for (index, best) in app_state.minigame_best_scores.iter().take(5).enumerate() {
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("  {}.", index + 1),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(format!(" {:>3}", best), Style::default().fg(Color::White)),
-            ]));
+        for (index, best) in app_state.minigame_best_scores.iter().take(3).enumerate() {
+            lines.push(Line::from(vec![Span::styled(
+                format!("  #{} - {} pts", index + 1, best),
+                Style::default().fg(Color::White),
+            )]));
         }
     }
+
+    // Current score with rank
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  YOUR SCORE",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    let rank = calculate_rank(&app_state.minigame_best_scores, score);
+    let rank_color = match rank {
+        1 => Color::Rgb(255, 215, 0),   // Gold
+        2 => Color::Rgb(192, 192, 192), // Silver
+        3 => Color::Rgb(205, 127, 50),  // Bronze
+        _ => Color::Green,
+    };
+    lines.push(Line::from(vec![Span::styled(
+        format!("  #{} - {} pts", rank, score),
+        Style::default().fg(rank_color).add_modifier(Modifier::BOLD),
+    )]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
@@ -749,25 +768,16 @@ pub fn render_snake_results(frame: &mut Frame, area: Rect, score: u32, app_state
     let mut lines: Vec<Line> = vec![Line::from("")];
 
     lines.push(Line::from(vec![Span::styled(
-        "  SNAKE RESULTS",
+        "  SNAKE",
         Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD),
     )]));
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            score.to_string(),
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ]));
 
+    // Top 3 scores
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  BEST SCORES",
+        "  TOP SCORES",
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD),
@@ -781,16 +791,34 @@ pub fn render_snake_results(frame: &mut Frame, area: Rect, score: u32, app_state
                 .add_modifier(Modifier::ITALIC),
         )]));
     } else {
-        for (index, best) in app_state.snake_best_scores.iter().take(5).enumerate() {
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("  {}.", index + 1),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(format!(" {:>3}", best), Style::default().fg(Color::White)),
-            ]));
+        for (index, best) in app_state.snake_best_scores.iter().take(3).enumerate() {
+            lines.push(Line::from(vec![Span::styled(
+                format!("  #{} - {} pts", index + 1, best),
+                Style::default().fg(Color::White),
+            )]));
         }
     }
+
+    // Current score with rank
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  YOUR SCORE",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    let rank = calculate_rank(&app_state.snake_best_scores, score);
+    let rank_color = match rank {
+        1 => Color::Rgb(255, 215, 0),   // Gold
+        2 => Color::Rgb(192, 192, 192), // Silver
+        3 => Color::Rgb(205, 127, 50),  // Bronze
+        _ => Color::Green,
+    };
+    lines.push(Line::from(vec![Span::styled(
+        format!("  #{} - {} pts", rank, score),
+        Style::default().fg(rank_color).add_modifier(Modifier::BOLD),
+    )]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
@@ -1028,7 +1056,11 @@ pub fn render_breakout_results(
 ) {
     let mut lines: Vec<Line> = vec![Line::from("")];
 
-    let title = if victory { "  VICTORY!" } else { "  GAME OVER" };
+    let title = if victory {
+        "  BREAKOUT - VICTORY!"
+    } else {
+        "  BREAKOUT - GAME OVER"
+    };
     let title_color = if victory { Color::Green } else { Color::Red };
 
     lines.push(Line::from(vec![Span::styled(
@@ -1037,20 +1069,11 @@ pub fn render_breakout_results(
             .fg(title_color)
             .add_modifier(Modifier::BOLD),
     )]));
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            score.to_string(),
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ]));
 
+    // Top 3 scores
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  BEST SCORES",
+        "  TOP SCORES",
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD),
@@ -1064,16 +1087,34 @@ pub fn render_breakout_results(
                 .add_modifier(Modifier::ITALIC),
         )]));
     } else {
-        for (index, best) in app_state.breakout_best_scores.iter().take(5).enumerate() {
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("  {}.", index + 1),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(format!(" {:>4}", best), Style::default().fg(Color::White)),
-            ]));
+        for (index, best) in app_state.breakout_best_scores.iter().take(3).enumerate() {
+            lines.push(Line::from(vec![Span::styled(
+                format!("  #{} - {} pts", index + 1, best),
+                Style::default().fg(Color::White),
+            )]));
         }
     }
+
+    // Current score with rank
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  YOUR SCORE",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    let rank = calculate_rank(&app_state.breakout_best_scores, score);
+    let rank_color = match rank {
+        1 => Color::Rgb(255, 215, 0),   // Gold
+        2 => Color::Rgb(192, 192, 192), // Silver
+        3 => Color::Rgb(205, 127, 50),  // Bronze
+        _ => Color::Green,
+    };
+    lines.push(Line::from(vec![Span::styled(
+        format!("  #{} - {} pts", rank, score),
+        Style::default().fg(rank_color).add_modifier(Modifier::BOLD),
+    )]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
