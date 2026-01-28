@@ -331,16 +331,19 @@ impl SnakeGame {
         // Calculate new head position
         let head = self.snake.front().copied().unwrap_or((0, 0));
         let (dx, dy) = self.direction.delta();
-        let new_head = (head.0 + dx, head.1 + dy);
+        let mut new_head = (head.0 + dx, head.1 + dy);
 
-        // Check wall collision
-        if new_head.0 < 0
-            || new_head.0 >= self.bounds.0 as i32
-            || new_head.1 < 0
-            || new_head.1 >= self.bounds.1 as i32
-        {
-            self.game_over = true;
-            return;
+        // Wall wrapping (teleport to other side)
+        if new_head.0 < 0 {
+            new_head.0 = self.bounds.0 as i32 - 1;
+        } else if new_head.0 >= self.bounds.0 as i32 {
+            new_head.0 = 0;
+        }
+
+        if new_head.1 < 0 {
+            new_head.1 = self.bounds.1 as i32 - 1;
+        } else if new_head.1 >= self.bounds.1 as i32 {
+            new_head.1 = 0;
         }
 
         // Check self collision (excluding tail since it will move)
