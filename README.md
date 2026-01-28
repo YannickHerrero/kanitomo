@@ -102,7 +102,16 @@ Break all the bricks with a bouncing ball. You have 3 lives, and higher rows are
 | `q` | Exit game |
 
 #### Tetris
-Modern Tetris implementation with full SRS (Super Rotation System) rotation, T-Spin detection, and Tetr.io-style lock delay. Features include:
+Modern Tetris implementation with full SRS (Super Rotation System) rotation, T-Spin detection, and Tetr.io-style lock delay.
+
+**Game Modes:**
+- **Normal** - Classic marathon mode with level progression (every 10 lines)
+- **Sprint** - Race to clear 40 lines as fast as possible (leaderboard by time)
+- **Zen** - Relaxed mode with no speed increase
+- **Dig** - Clear 10 rows of pre-filled garbage lines
+- **Survival** - Increasingly intense mode with speed increase every 5 lines
+
+**Features:**
 - **7-bag randomizer** for fair piece distribution
 - **SRS rotation** with proper wall kicks for advanced techniques
 - **T-Spin detection** with Mini/proper distinction and bonus scoring

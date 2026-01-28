@@ -57,9 +57,21 @@ pub struct AppState {
     /// Best Breakout scores (highest first)
     #[serde(default)]
     pub breakout_best_scores: Vec<u32>,
-    /// Best Tetris scores (highest first)
+    /// Best Tetris Normal mode scores (highest first)
     #[serde(default)]
-    pub tetris_best_scores: Vec<u32>,
+    pub tetris_normal_scores: Vec<u32>,
+    /// Best Tetris Sprint times (fastest first, in seconds)
+    #[serde(default)]
+    pub tetris_sprint_times: Vec<f32>,
+    /// Best Tetris Zen mode scores (highest first)
+    #[serde(default)]
+    pub tetris_zen_scores: Vec<u32>,
+    /// Best Tetris Dig mode scores (highest first)
+    #[serde(default)]
+    pub tetris_dig_scores: Vec<u32>,
+    /// Best Tetris Survival mode scores (highest first)
+    #[serde(default)]
+    pub tetris_survival_scores: Vec<u32>,
 }
 
 fn default_version() -> u32 {
@@ -82,7 +94,11 @@ impl Default for AppState {
             minigame_best_scores: Vec::new(),
             snake_best_scores: Vec::new(),
             breakout_best_scores: Vec::new(),
-            tetris_best_scores: Vec::new(),
+            tetris_normal_scores: Vec::new(),
+            tetris_sprint_times: Vec::new(),
+            tetris_zen_scores: Vec::new(),
+            tetris_dig_scores: Vec::new(),
+            tetris_survival_scores: Vec::new(),
         }
     }
 }

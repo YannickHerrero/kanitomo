@@ -410,6 +410,28 @@ const TETRIS_GRID_WIDTH: usize = 10;
 const TETRIS_GRID_HEIGHT: usize = 20;
 const TETRIS_BASE_FALL_INTERVAL: f32 = 1.0; // 1 second at level 0
 const TETRIS_MIN_FALL_INTERVAL: f32 = 0.05; // 50ms at max speed
+const TETRIS_DIG_GARBAGE_ROWS: usize = 10; // Number of garbage rows for Dig mode
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TetrisMode {
+    Normal,   // Classic mode with level progression
+    Sprint,   // Race to clear 40 lines as fast as possible
+    Zen,      // Relaxed mode with no speed increase
+    Dig,      // Clear pre-filled garbage lines
+    Survival, // Increasingly fast mode
+}
+
+impl TetrisMode {
+    pub fn name(&self) -> &str {
+        match self {
+            TetrisMode::Normal => "Normal",
+            TetrisMode::Sprint => "Sprint",
+            TetrisMode::Zen => "Zen",
+            TetrisMode::Dig => "Dig",
+            TetrisMode::Survival => "Survival",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PieceType {
@@ -626,6 +648,7 @@ fn get_i_kicks(from: RotationState, to: RotationState) -> [(i32, i32); 5] {
 
 #[derive(Debug)]
 pub struct TetrisGame {
+    pub mode: TetrisMode,
     pub grid: Vec<Vec<Option<PieceType>>>,
     pub current_piece: Option<Piece>,
     pub next_piece: PieceType,
@@ -647,15 +670,19 @@ pub struct TetrisGame {
     lock_delay_max_resets: u32, // ~15-20 for Tetr.io feel
     last_action_was_rotation: bool,
     last_kick_index: usize,
+    // Mode-specific fields
+    pub elapsed_time: f32, // For Sprint mode timing
+    pub target_lines: u32, // For Sprint mode (40 lines)
 }
 
 impl TetrisGame {
-    pub fn new() -> Self {
+    pub fn new(mode: TetrisMode) -> Self {
         let mut rng = rand::thread_rng();
         let mut bag = Self::new_bag(&mut rng);
         let next_piece = bag.pop().unwrap();
 
         let mut game = Self {
+            mode,
             grid: vec![vec![None; TETRIS_GRID_WIDTH]; TETRIS_GRID_HEIGHT],
             current_piece: None,
             next_piece,
@@ -676,10 +703,38 @@ impl TetrisGame {
             lock_delay_max_resets: 20, // 20 resets for Tetr.io feel (vs 15 guideline)
             last_action_was_rotation: false,
             last_kick_index: 0,
+            elapsed_time: 0.0,
+            target_lines: if mode == TetrisMode::Sprint { 40 } else { 0 },
         };
 
+        // Initialize mode-specific setup
+        game.setup_mode();
         game.spawn_piece();
         game
+    }
+
+    fn setup_mode(&mut self) {
+        match self.mode {
+            TetrisMode::Dig => {
+                // Fill bottom rows with garbage (with one random hole per row)
+                use rand::Rng;
+                for y in (TETRIS_GRID_HEIGHT - TETRIS_DIG_GARBAGE_ROWS)..TETRIS_GRID_HEIGHT {
+                    let hole_x = self.rng.gen_range(0..TETRIS_GRID_WIDTH);
+                    for x in 0..TETRIS_GRID_WIDTH {
+                        if x != hole_x {
+                            // Use a gray color for garbage
+                            self.grid[y][x] = Some(PieceType::L); // Reuse L for garbage visual
+                        }
+                    }
+                }
+            }
+            TetrisMode::Survival => {
+                // Start at a higher level for faster initial speed
+                self.level = 5;
+                self.update_fall_speed();
+            }
+            _ => {}
+        }
     }
 
     fn new_bag(rng: &mut rand::rngs::ThreadRng) -> Vec<PieceType> {
@@ -1002,26 +1057,67 @@ impl TetrisGame {
         };
         self.score += base_score * (self.level + 1);
 
-        // Level up every 10 lines
-        let new_level = self.lines_cleared / 10;
-        if new_level > self.level {
-            self.level = new_level;
-            self.update_fall_speed();
+        // Level progression depends on mode
+        match self.mode {
+            TetrisMode::Zen => {
+                // Zen: no level progression
+            }
+            TetrisMode::Sprint => {
+                // Sprint: check if target reached
+                if self.lines_cleared >= self.target_lines {
+                    self.game_over = true;
+                }
+            }
+            TetrisMode::Survival => {
+                // Survival: level up every 5 lines for faster progression
+                let new_level = self.lines_cleared / 5;
+                if new_level > self.level {
+                    self.level = new_level;
+                    self.update_fall_speed();
+                }
+            }
+            TetrisMode::Normal | TetrisMode::Dig => {
+                // Normal/Dig: level up every 10 lines
+                let new_level = self.lines_cleared / 10;
+                if new_level > self.level {
+                    self.level = new_level;
+                    self.update_fall_speed();
+                }
+            }
         }
 
         lines_count
     }
 
     fn update_fall_speed(&mut self) {
-        // Fall speed increases with level
-        // Formula: base_interval * (0.9 ^ level), clamped to minimum
-        self.fall_interval = (TETRIS_BASE_FALL_INTERVAL * 0.9_f32.powi(self.level as i32))
-            .max(TETRIS_MIN_FALL_INTERVAL);
+        match self.mode {
+            TetrisMode::Zen => {
+                // Zen mode: speed never increases
+                self.fall_interval = TETRIS_BASE_FALL_INTERVAL;
+            }
+            TetrisMode::Survival => {
+                // Survival: faster progression
+                // More aggressive formula
+                self.fall_interval = (TETRIS_BASE_FALL_INTERVAL * 0.85_f32.powi(self.level as i32))
+                    .max(TETRIS_MIN_FALL_INTERVAL);
+            }
+            _ => {
+                // Normal, Sprint, Dig: standard progression
+                // Formula: base_interval * (0.9 ^ level), clamped to minimum
+                self.fall_interval = (TETRIS_BASE_FALL_INTERVAL * 0.9_f32.powi(self.level as i32))
+                    .max(TETRIS_MIN_FALL_INTERVAL);
+            }
+        }
     }
 
     pub fn update(&mut self, dt: f32) {
         if self.game_over {
             return;
+        }
+
+        // Track elapsed time for Sprint mode
+        if self.mode == TetrisMode::Sprint {
+            self.elapsed_time += dt;
         }
 
         // Check if piece is grounded

@@ -5,7 +5,9 @@ use crate::state::{
     calculate_happiness_from_commits, calculate_streak_from_history, get_today_commit_count,
     AppState, StateManager, TrackedCommit,
 };
-use crate::ui::minigames::{BreakoutGame, Direction as SnakeDirection, SnakeGame, TetrisGame};
+use crate::ui::minigames::{
+    BreakoutGame, Direction as SnakeDirection, SnakeGame, TetrisGame, TetrisMode,
+};
 use crate::ui::{messages, widgets, CrabCatchGame};
 use anyhow::Result;
 use chrono::{Datelike, Local};
@@ -81,7 +83,9 @@ pub struct App {
     /// Active Tetris game state
     tetris_game: Option<TetrisGame>,
     /// Last Tetris score (for results screen)
-    tetris_last_score: Option<u32>,
+    tetris_last_result: Option<(TetrisMode, u32, f32)>, // (mode, score, time)
+    /// Show Tetris mode selection menu
+    show_tetris_mode_menu: bool,
     /// Whether to show the commit picker overlay (debug only)
     pub show_commit_picker: bool,
     /// List of commits from git log for the commit picker
@@ -173,7 +177,8 @@ impl App {
             breakout_game: None,
             breakout_last_score: None,
             tetris_game: None,
-            tetris_last_score: None,
+            tetris_last_result: None,
+            show_tetris_mode_menu: false,
             show_commit_picker: false,
             commit_picker_items: Vec::new(),
             commit_picker_selected: 0,
@@ -222,14 +227,14 @@ impl App {
         if self.minigame_last_score.is_some()
             || self.snake_last_score.is_some()
             || self.breakout_last_score.is_some()
-            || self.tetris_last_score.is_some()
+            || self.tetris_last_result.is_some()
         {
             match key {
                 KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => {
                     self.minigame_last_score = None;
                     self.snake_last_score = None;
                     self.breakout_last_score = None;
-                    self.tetris_last_score = None;
+                    self.tetris_last_result = None;
                 }
                 _ => {}
             }
@@ -328,6 +333,31 @@ impl App {
             return;
         }
 
+        if self.show_tetris_mode_menu {
+            match key {
+                KeyCode::Char('1') => {
+                    self.start_tetris(TetrisMode::Normal);
+                }
+                KeyCode::Char('2') => {
+                    self.start_tetris(TetrisMode::Sprint);
+                }
+                KeyCode::Char('3') => {
+                    self.start_tetris(TetrisMode::Zen);
+                }
+                KeyCode::Char('4') => {
+                    self.start_tetris(TetrisMode::Dig);
+                }
+                KeyCode::Char('5') => {
+                    self.start_tetris(TetrisMode::Survival);
+                }
+                KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc | KeyCode::Backspace => {
+                    self.show_tetris_mode_menu = false;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.show_minigame_menu {
             match key {
                 KeyCode::Char('1') => {
@@ -340,7 +370,8 @@ impl App {
                     self.start_breakout();
                 }
                 KeyCode::Char('4') => {
-                    self.start_tetris();
+                    self.show_minigame_menu = false;
+                    self.show_tetris_mode_menu = true;
                 }
                 KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc => {
                     self.show_minigame_menu = false;
@@ -875,8 +906,12 @@ impl App {
             widgets::render_breakout_results(frame, area, score, victory, &self.app_state);
         }
 
-        if let Some(score) = self.tetris_last_score {
-            widgets::render_tetris_results(frame, area, score, &self.app_state);
+        if let Some((mode, score, time)) = self.tetris_last_result {
+            widgets::render_tetris_results(frame, area, mode, score, time, &self.app_state);
+        }
+
+        if self.show_tetris_mode_menu {
+            widgets::render_tetris_mode_menu(frame, area);
         }
 
         // Render commit picker overlay (debug mode only)
@@ -973,25 +1008,69 @@ impl App {
         }
     }
 
-    fn start_tetris(&mut self) {
-        self.tetris_game = Some(TetrisGame::new());
-        self.show_minigame_menu = false;
-        self.tetris_last_score = None;
-        self.set_temp_message("Tetris! Rotate with UP/K, drop with SPACE.");
+    fn start_tetris(&mut self, mode: TetrisMode) {
+        self.tetris_game = Some(TetrisGame::new(mode));
+        self.show_tetris_mode_menu = false;
+        self.tetris_last_result = None;
+
+        let msg = match mode {
+            TetrisMode::Normal => "Tetris Normal! Level up every 10 lines.",
+            TetrisMode::Sprint => "Sprint Mode! Clear 40 lines as fast as possible!",
+            TetrisMode::Zen => "Zen Mode! Relax, no speed increase.",
+            TetrisMode::Dig => "Dig Mode! Clear the garbage!",
+            TetrisMode::Survival => "Survival! Speed increases every 5 lines!",
+        };
+        self.set_temp_message(msg);
     }
 
     fn finish_tetris_game(&mut self) {
         if let Some(game) = self.tetris_game.take() {
-            self.record_tetris_score(game.score);
-            self.tetris_last_score = Some(game.score);
+            self.record_tetris_result(game.mode, game.score, game.elapsed_time);
+            self.tetris_last_result = Some((game.mode, game.score, game.elapsed_time));
         }
     }
 
-    fn record_tetris_score(&mut self, score: u32) {
-        self.app_state.tetris_best_scores.push(score);
-        self.app_state.tetris_best_scores.sort_by(|a, b| b.cmp(a));
-        if self.app_state.tetris_best_scores.len() > 100 {
-            self.app_state.tetris_best_scores.truncate(100);
+    fn record_tetris_result(&mut self, mode: TetrisMode, score: u32, time: f32) {
+        match mode {
+            TetrisMode::Normal => {
+                self.app_state.tetris_normal_scores.push(score);
+                self.app_state.tetris_normal_scores.sort_by(|a, b| b.cmp(a));
+                if self.app_state.tetris_normal_scores.len() > 100 {
+                    self.app_state.tetris_normal_scores.truncate(100);
+                }
+            }
+            TetrisMode::Sprint => {
+                self.app_state.tetris_sprint_times.push(time);
+                self.app_state
+                    .tetris_sprint_times
+                    .sort_by(|a, b| a.partial_cmp(b).unwrap());
+                if self.app_state.tetris_sprint_times.len() > 100 {
+                    self.app_state.tetris_sprint_times.truncate(100);
+                }
+            }
+            TetrisMode::Zen => {
+                self.app_state.tetris_zen_scores.push(score);
+                self.app_state.tetris_zen_scores.sort_by(|a, b| b.cmp(a));
+                if self.app_state.tetris_zen_scores.len() > 100 {
+                    self.app_state.tetris_zen_scores.truncate(100);
+                }
+            }
+            TetrisMode::Dig => {
+                self.app_state.tetris_dig_scores.push(score);
+                self.app_state.tetris_dig_scores.sort_by(|a, b| b.cmp(a));
+                if self.app_state.tetris_dig_scores.len() > 100 {
+                    self.app_state.tetris_dig_scores.truncate(100);
+                }
+            }
+            TetrisMode::Survival => {
+                self.app_state.tetris_survival_scores.push(score);
+                self.app_state
+                    .tetris_survival_scores
+                    .sort_by(|a, b| b.cmp(a));
+                if self.app_state.tetris_survival_scores.len() > 100 {
+                    self.app_state.tetris_survival_scores.truncate(100);
+                }
+            }
         }
     }
 

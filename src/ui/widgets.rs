@@ -2,7 +2,7 @@ use crate::crab::Crab;
 use crate::environment::{Environment, TimeOfDay};
 use crate::git::{format_time_ago, CommitInfo, GitStats};
 use crate::state::{get_today_by_project, get_week_summary, AppState};
-use crate::ui::minigames::{BreakoutGame, PieceType, SnakeGame, TetrisGame};
+use crate::ui::minigames::{BreakoutGame, PieceType, SnakeGame, TetrisGame, TetrisMode};
 use crate::ui::CrabCatchGame;
 use chrono::Datelike;
 use ratatui::{
@@ -1294,9 +1294,9 @@ pub fn render_tetris_game(frame: &mut Frame, game: &TetrisGame, area: Rect) {
     }
 
     // Draw HUD on the left
-    let hud_lines = vec![
+    let mut hud_lines = vec![
         Line::from(vec![Span::styled(
-            "  Tetris",
+            format!("  {}", game.mode.name()),
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
@@ -1310,16 +1310,41 @@ pub fn render_tetris_game(frame: &mut Frame, game: &TetrisGame, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ),
         ]),
-        Line::from(vec![
-            Span::styled("  Level: ", Style::default().fg(Color::DarkGray)),
+    ];
+
+    // Mode-specific HUD
+    if game.mode == TetrisMode::Sprint {
+        hud_lines.push(Line::from(vec![
+            Span::styled("  Time: ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                game.level.to_string(),
+                format!("{:.1}s", game.elapsed_time),
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-        ]),
-        Line::from(vec![
+        ]));
+        hud_lines.push(Line::from(vec![
+            Span::styled("  Lines: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{}/{}", game.lines_cleared, game.target_lines),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    } else {
+        if game.mode != TetrisMode::Zen {
+            hud_lines.push(Line::from(vec![
+                Span::styled("  Level: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    game.level.to_string(),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]));
+        }
+        hud_lines.push(Line::from(vec![
             Span::styled("  Lines: ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 game.lines_cleared.to_string(),
@@ -1327,8 +1352,8 @@ pub fn render_tetris_game(frame: &mut Frame, game: &TetrisGame, area: Rect) {
                     .fg(Color::Magenta)
                     .add_modifier(Modifier::BOLD),
             ),
-        ]),
-    ];
+        ]));
+    }
 
     let hud_width = 20.min(area.width.saturating_sub(2));
     let hud_area = Rect {
@@ -1461,61 +1486,193 @@ fn piece_color(piece_type: PieceType) -> Color {
     }
 }
 
-/// Render the Tetris game results screen
-pub fn render_tetris_results(frame: &mut Frame, area: Rect, score: u32, app_state: &AppState) {
+/// Render the Tetris mode selection menu
+pub fn render_tetris_mode_menu(frame: &mut Frame, area: Rect) {
     let mut lines: Vec<Line> = vec![Line::from("")];
 
     lines.push(Line::from(vec![Span::styled(
-        "  TETRIS",
+        "  TETRIS MODES",
         Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD),
     )]));
 
-    // Top 3 scores
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  [1] ", Style::default().fg(Color::Yellow)),
+        Span::styled("Normal", Style::default().fg(Color::White)),
+        Span::styled(" - Classic mode", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [2] ", Style::default().fg(Color::Yellow)),
+        Span::styled("Sprint", Style::default().fg(Color::White)),
+        Span::styled(" - Clear 40 lines", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [3] ", Style::default().fg(Color::Yellow)),
+        Span::styled("Zen", Style::default().fg(Color::White)),
+        Span::styled(" - No speed increase", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [4] ", Style::default().fg(Color::Yellow)),
+        Span::styled("Dig", Style::default().fg(Color::White)),
+        Span::styled(" - Clear garbage", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [5] ", Style::default().fg(Color::Yellow)),
+        Span::styled("Survival", Style::default().fg(Color::White)),
+        Span::styled(" - Intense speed", Style::default().fg(Color::DarkGray)),
+    ]));
+
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  TOP SCORES",
+        "  Press number to select mode",
+        Style::default().fg(Color::DarkGray),
+    )]));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [space] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let overlay_width = 45.min(area.width.saturating_sub(4));
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    frame.render_widget(Clear, overlay_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Select Mode ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
+}
+
+/// Render the Tetris game results screen
+pub fn render_tetris_results(
+    frame: &mut Frame,
+    area: Rect,
+    mode: TetrisMode,
+    score: u32,
+    time: f32,
+    app_state: &AppState,
+) {
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    lines.push(Line::from(vec![Span::styled(
+        format!("  TETRIS - {}", mode.name().to_uppercase()),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    // Get leaderboard based on mode
+    let (leaderboard_title, leaderboard, your_result, rank_text) = match mode {
+        TetrisMode::Sprint => {
+            let times = &app_state.tetris_sprint_times;
+            let rank = times
+                .iter()
+                .position(|&t| t >= time)
+                .map(|p| p + 1)
+                .unwrap_or(times.len() + 1);
+            let rank_color = match rank {
+                1 => Color::Rgb(255, 215, 0),
+                2 => Color::Rgb(192, 192, 192),
+                3 => Color::Rgb(205, 127, 50),
+                _ => Color::Green,
+            };
+            (
+                "TOP TIMES",
+                times
+                    .iter()
+                    .take(3)
+                    .map(|&t| {
+                        format!(
+                            "  #{} - {:.2}s",
+                            times.iter().position(|&x| x == t).unwrap() + 1,
+                            t
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                format!("  #{} - {:.2}s", rank, time),
+                rank_color,
+            )
+        }
+        _ => {
+            let scores = match mode {
+                TetrisMode::Normal => &app_state.tetris_normal_scores,
+                TetrisMode::Zen => &app_state.tetris_zen_scores,
+                TetrisMode::Dig => &app_state.tetris_dig_scores,
+                TetrisMode::Survival => &app_state.tetris_survival_scores,
+                _ => &vec![],
+            };
+            let rank = calculate_rank(scores, score);
+            let rank_color = match rank {
+                1 => Color::Rgb(255, 215, 0),
+                2 => Color::Rgb(192, 192, 192),
+                3 => Color::Rgb(205, 127, 50),
+                _ => Color::Green,
+            };
+            (
+                "TOP SCORES",
+                scores
+                    .iter()
+                    .take(3)
+                    .enumerate()
+                    .map(|(i, s)| format!("  #{} - {} pts", i + 1, s))
+                    .collect::<Vec<_>>(),
+                format!("  #{} - {} pts", rank, score),
+                rank_color,
+            )
+        }
+    };
+
+    // Top 3 leaderboard
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        format!("  {}", leaderboard_title),
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD),
     )]));
 
-    if app_state.tetris_best_scores.is_empty() {
+    if leaderboard.is_empty() {
         lines.push(Line::from(vec![Span::styled(
-            "  No scores yet",
+            "  No records yet",
             Style::default()
                 .fg(Color::DarkGray)
                 .add_modifier(Modifier::ITALIC),
         )]));
     } else {
-        for (index, best) in app_state.tetris_best_scores.iter().take(3).enumerate() {
+        for entry in leaderboard {
             lines.push(Line::from(vec![Span::styled(
-                format!("  #{} - {} pts", index + 1, best),
+                entry,
                 Style::default().fg(Color::White),
             )]));
         }
     }
 
-    // Current score with rank
+    // Your result
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  YOUR SCORE",
+        if mode == TetrisMode::Sprint {
+            "  YOUR TIME"
+        } else {
+            "  YOUR SCORE"
+        },
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD),
     )]));
-
-    let rank = calculate_rank(&app_state.tetris_best_scores, score);
-    let rank_color = match rank {
-        1 => Color::Rgb(255, 215, 0),   // Gold
-        2 => Color::Rgb(192, 192, 192), // Silver
-        3 => Color::Rgb(205, 127, 50),  // Bronze
-        _ => Color::Green,
-    };
     lines.push(Line::from(vec![Span::styled(
-        format!("  #{} - {} pts", rank, score),
-        Style::default().fg(rank_color).add_modifier(Modifier::BOLD),
+        your_result,
+        Style::default().fg(rank_text).add_modifier(Modifier::BOLD),
     )]));
 
     lines.push(Line::from(""));
@@ -1525,7 +1682,7 @@ pub fn render_tetris_results(frame: &mut Frame, area: Rect, score: u32, app_stat
     )]));
 
     let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
-    let overlay_width = 36.min(area.width.saturating_sub(4));
+    let overlay_width = 40.min(area.width.saturating_sub(4));
     let overlay_area = centered_rect(overlay_width, overlay_height, area);
 
     frame.render_widget(Clear, overlay_area);
