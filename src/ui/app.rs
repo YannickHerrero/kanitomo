@@ -319,7 +319,7 @@ impl App {
                 KeyCode::Char('z') | KeyCode::Char('i') => {
                     game.rotate_piece_ccw();
                 }
-                KeyCode::Char(' ') => {
+                KeyCode::Char(' ') | KeyCode::Enter => {
                     game.hard_drop();
                 }
                 KeyCode::Char('c') => {

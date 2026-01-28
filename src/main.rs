@@ -364,7 +364,7 @@ fn run_standalone_game_loop(
                         KeyCode::Char('c') => {
                             game.hold();
                         }
-                        KeyCode::Char(' ') => {
+                        KeyCode::Char(' ') | KeyCode::Enter => {
                             game.hard_drop();
                         }
                         KeyCode::Char('q') => {
