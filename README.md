@@ -101,6 +101,17 @@ Break all the bricks with a bouncing ball. You have 3 lives, and higher rows are
 | `space` | Launch ball |
 | `q` | Exit game |
 
+#### Tetris
+Classic block-stacking game using the 7-bag randomizer for fair piece distribution. Score points by clearing lines (1/2/3/4 lines = 100/300/500/800 × level). Level increases every 10 lines, making pieces fall faster.
+
+| Key | Action |
+|-----|--------|
+| `←` `→` / `h` `l` | Move piece left/right |
+| `↓` / `j` | Soft drop (move down) |
+| `↑` / `k` | Rotate piece clockwise |
+| `space` | Hard drop (instant drop) |
+| `q` | Exit game |
+
 ### Happiness
 
 Happiness is based solely on how many commits you make today. It rises quickly at first and slows near the top, reaching 100% at 20 commits.

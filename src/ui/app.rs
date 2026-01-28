@@ -5,7 +5,7 @@ use crate::state::{
     calculate_happiness_from_commits, calculate_streak_from_history, get_today_commit_count,
     AppState, StateManager, TrackedCommit,
 };
-use crate::ui::minigames::{BreakoutGame, Direction as SnakeDirection, SnakeGame};
+use crate::ui::minigames::{BreakoutGame, Direction as SnakeDirection, SnakeGame, TetrisGame};
 use crate::ui::{messages, widgets, CrabCatchGame};
 use anyhow::Result;
 use chrono::{Datelike, Local};
@@ -78,6 +78,10 @@ pub struct App {
     breakout_game: Option<BreakoutGame>,
     /// Last Breakout score and victory status (for results screen)
     breakout_last_score: Option<(u32, bool)>,
+    /// Active Tetris game state
+    tetris_game: Option<TetrisGame>,
+    /// Last Tetris score (for results screen)
+    tetris_last_score: Option<u32>,
     /// Whether to show the commit picker overlay (debug only)
     pub show_commit_picker: bool,
     /// List of commits from git log for the commit picker
@@ -168,6 +172,8 @@ impl App {
             snake_last_score: None,
             breakout_game: None,
             breakout_last_score: None,
+            tetris_game: None,
+            tetris_last_score: None,
             show_commit_picker: false,
             commit_picker_items: Vec::new(),
             commit_picker_selected: 0,
@@ -216,12 +222,14 @@ impl App {
         if self.minigame_last_score.is_some()
             || self.snake_last_score.is_some()
             || self.breakout_last_score.is_some()
+            || self.tetris_last_score.is_some()
         {
             match key {
                 KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => {
                     self.minigame_last_score = None;
                     self.snake_last_score = None;
                     self.breakout_last_score = None;
+                    self.tetris_last_score = None;
                 }
                 _ => {}
             }
@@ -288,6 +296,32 @@ impl App {
             return;
         }
 
+        // Handle active Tetris game
+        if let Some(game) = self.tetris_game.as_mut() {
+            match key {
+                KeyCode::Left | KeyCode::Char('h') => {
+                    game.move_piece(-1, 0);
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    game.move_piece(1, 0);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    game.soft_drop();
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    game.rotate_piece();
+                }
+                KeyCode::Char(' ') => {
+                    game.hard_drop();
+                }
+                KeyCode::Char('q') | KeyCode::Esc => {
+                    self.finish_tetris_game();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.show_minigame_menu {
             match key {
                 KeyCode::Char('1') => {
@@ -298,6 +332,9 @@ impl App {
                 }
                 KeyCode::Char('3') => {
                     self.start_breakout();
+                }
+                KeyCode::Char('4') => {
+                    self.start_tetris();
                 }
                 KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc => {
                     self.show_minigame_menu = false;
@@ -513,10 +550,18 @@ impl App {
             false
         };
 
+        let tetris_finished = if let Some(game) = self.tetris_game.as_mut() {
+            game.update(dt);
+            game.is_finished()
+        } else {
+            false
+        };
+
         // Update crab only if no game is active
         if self.mini_game.is_none()
             && self.snake_game.is_none()
             && self.breakout_game.is_none()
+            && self.tetris_game.is_none()
             && bounds.0 > 0.0
             && bounds.1 > 0.0
         {
@@ -533,6 +578,10 @@ impl App {
 
         if breakout_finished {
             self.finish_breakout_game();
+        }
+
+        if tetris_finished {
+            self.finish_tetris_game();
         }
 
         // Check for file system events (new commits)
@@ -711,8 +760,10 @@ impl App {
     /// Draw the UI
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
-        let any_game_active =
-            self.mini_game.is_some() || self.snake_game.is_some() || self.breakout_game.is_some();
+        let any_game_active = self.mini_game.is_some()
+            || self.snake_game.is_some()
+            || self.breakout_game.is_some()
+            || self.tetris_game.is_some();
         let show_stats_panel = self.show_stats && !any_game_active;
 
         // Layout: Title | Crab Area | Stats (optional)
@@ -759,6 +810,8 @@ impl App {
             widgets::render_snake_game(frame, game, crab_area);
         } else if let Some(game) = &self.breakout_game {
             widgets::render_breakout_game(frame, game, crab_area);
+        } else if let Some(game) = &self.tetris_game {
+            widgets::render_tetris_game(frame, game, crab_area);
         } else {
             // 2. Environment background (sky, sun/moon, clouds, stars)
             widgets::render_environment_background(frame, &self.environment, crab_area);
@@ -814,6 +867,10 @@ impl App {
 
         if let Some((score, victory)) = self.breakout_last_score {
             widgets::render_breakout_results(frame, area, score, victory, &self.app_state);
+        }
+
+        if let Some(score) = self.tetris_last_score {
+            widgets::render_tetris_results(frame, area, score, &self.app_state);
         }
 
         // Render commit picker overlay (debug mode only)
@@ -907,6 +964,28 @@ impl App {
         self.app_state.breakout_best_scores.sort_by(|a, b| b.cmp(a));
         if self.app_state.breakout_best_scores.len() > 100 {
             self.app_state.breakout_best_scores.truncate(100);
+        }
+    }
+
+    fn start_tetris(&mut self) {
+        self.tetris_game = Some(TetrisGame::new());
+        self.show_minigame_menu = false;
+        self.tetris_last_score = None;
+        self.set_temp_message("Tetris! Rotate with UP/K, drop with SPACE.");
+    }
+
+    fn finish_tetris_game(&mut self) {
+        if let Some(game) = self.tetris_game.take() {
+            self.record_tetris_score(game.score);
+            self.tetris_last_score = Some(game.score);
+        }
+    }
+
+    fn record_tetris_score(&mut self, score: u32) {
+        self.app_state.tetris_best_scores.push(score);
+        self.app_state.tetris_best_scores.sort_by(|a, b| b.cmp(a));
+        if self.app_state.tetris_best_scores.len() > 100 {
+            self.app_state.tetris_best_scores.truncate(100);
         }
     }
 

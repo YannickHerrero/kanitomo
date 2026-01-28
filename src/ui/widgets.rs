@@ -2,7 +2,7 @@ use crate::crab::Crab;
 use crate::environment::{Environment, TimeOfDay};
 use crate::git::{format_time_ago, CommitInfo, GitStats};
 use crate::state::{get_today_by_project, get_week_summary, AppState};
-use crate::ui::minigames::{BreakoutGame, SnakeGame};
+use crate::ui::minigames::{BreakoutGame, PieceType, SnakeGame, TetrisGame};
 use crate::ui::CrabCatchGame;
 use chrono::Datelike;
 use ratatui::{
@@ -363,10 +363,14 @@ pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
         Span::styled("  [3] ", Style::default().fg(Color::Yellow)),
         Span::styled("Breakout", Style::default().fg(Color::White)),
     ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [4] ", Style::default().fg(Color::Yellow)),
+        Span::styled("Tetris", Style::default().fg(Color::White)),
+    ]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  Press [1], [2], or [3] to start",
+        "  Press [1], [2], [3], or [4] to start",
         Style::default().fg(Color::DarkGray),
     )]));
     lines.push(Line::from(vec![Span::styled(
@@ -1105,6 +1109,305 @@ pub fn render_breakout_results(
     )]));
 
     let rank = calculate_rank(&app_state.breakout_best_scores, score);
+    let rank_color = match rank {
+        1 => Color::Rgb(255, 215, 0),   // Gold
+        2 => Color::Rgb(192, 192, 192), // Silver
+        3 => Color::Rgb(205, 127, 50),  // Bronze
+        _ => Color::Green,
+    };
+    lines.push(Line::from(vec![Span::styled(
+        format!("  #{} - {} pts", rank, score),
+        Style::default().fg(rank_color).add_modifier(Modifier::BOLD),
+    )]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [space] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let overlay_width = 36.min(area.width.saturating_sub(4));
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    frame.render_widget(Clear, overlay_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Results ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
+}
+
+/// Render the Tetris game
+pub fn render_tetris_game(frame: &mut Frame, game: &TetrisGame, area: Rect) {
+    if area.width < 30 || area.height < 22 {
+        return;
+    }
+
+    // Calculate centered play area (2 chars per cell for solid blocks)
+    let grid_width = 22; // 10 cells * 2 chars + 2 borders
+    let grid_height = 22; // 20 cells + 2 borders
+    let play_x = area.x + (area.width.saturating_sub(grid_width) / 2);
+    let play_y = area.y + (area.height.saturating_sub(grid_height) / 2);
+
+    let play_area = Rect {
+        x: play_x,
+        y: play_y,
+        width: grid_width,
+        height: grid_height,
+    };
+
+    // Draw border
+    let border_style = Style::default().fg(Color::DarkGray);
+    let horizontal_border = "-".repeat(grid_width as usize);
+
+    // Top border
+    frame.render_widget(
+        Paragraph::new(horizontal_border.clone()).style(border_style),
+        Rect {
+            x: play_area.x,
+            y: play_area.y,
+            width: grid_width,
+            height: 1,
+        },
+    );
+
+    // Bottom border
+    frame.render_widget(
+        Paragraph::new(horizontal_border).style(border_style),
+        Rect {
+            x: play_area.x,
+            y: play_area.y + grid_height - 1,
+            width: grid_width,
+            height: 1,
+        },
+    );
+
+    // Side borders
+    for dy in 1..grid_height - 1 {
+        frame.render_widget(
+            Paragraph::new("|").style(border_style),
+            Rect {
+                x: play_area.x,
+                y: play_area.y + dy,
+                width: 1,
+                height: 1,
+            },
+        );
+        frame.render_widget(
+            Paragraph::new("|").style(border_style),
+            Rect {
+                x: play_area.x + grid_width - 1,
+                y: play_area.y + dy,
+                width: 1,
+                height: 1,
+            },
+        );
+    }
+
+    // Draw locked blocks from grid (using solid blocks with bg color like samtay/tetris)
+    for (y, row) in game.grid.iter().enumerate() {
+        for (x, cell) in row.iter().enumerate() {
+            if let Some(piece_type) = cell {
+                let color = piece_color(*piece_type);
+                frame.render_widget(
+                    Paragraph::new("  ").style(Style::default().bg(color)),
+                    Rect {
+                        x: play_area.x + 1 + (x as u16 * 2),
+                        y: play_area.y + 1 + y as u16,
+                        width: 2,
+                        height: 1,
+                    },
+                );
+            }
+        }
+    }
+
+    // Draw current piece (using solid blocks with bg color)
+    if let Some(ref piece) = game.current_piece {
+        let color = piece_color(piece.piece_type);
+        for (x, y) in piece.blocks() {
+            if y >= 0 && x >= 0 && x < 10 && y < 20 {
+                frame.render_widget(
+                    Paragraph::new("  ").style(Style::default().bg(color)),
+                    Rect {
+                        x: play_area.x + 1 + (x as u16 * 2),
+                        y: play_area.y + 1 + y as u16,
+                        width: 2,
+                        height: 1,
+                    },
+                );
+            }
+        }
+    }
+
+    // Draw HUD on the left
+    let hud_lines = vec![
+        Line::from(vec![Span::styled(
+            "  Tetris",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.score.to_string(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Level: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.level.to_string(),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Lines: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.lines_cleared.to_string(),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+    ];
+
+    let hud_width = 20.min(area.width.saturating_sub(2));
+    let hud_area = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: hud_width.max(1),
+        height: 6.min(area.height.saturating_sub(2)),
+    };
+
+    let hud_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(Paragraph::new(hud_lines).block(hud_block), hud_area);
+
+    // Draw next piece preview on the right
+    let preview_x = play_area.x + grid_width + 2;
+    if preview_x + 12 < area.x + area.width {
+        let preview_lines = vec![
+            Line::from(vec![Span::styled(
+                "  Next",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(""),
+        ];
+
+        let preview_area = Rect {
+            x: preview_x,
+            y: area.y + 1,
+            width: 12,
+            height: 8,
+        };
+
+        let preview_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray));
+        frame.render_widget(
+            Paragraph::new(preview_lines).block(preview_block),
+            preview_area,
+        );
+
+        // Draw the next piece shape (centered in preview box with solid blocks)
+        let shape = game.next_piece.shape();
+        let color = piece_color(game.next_piece);
+        for (dy, row) in shape.iter().enumerate() {
+            for (dx, filled) in row.iter().enumerate() {
+                let filled = *filled;
+                if filled && dx < 4 && dy < 4 {
+                    frame.render_widget(
+                        Paragraph::new("  ").style(Style::default().bg(color)),
+                        Rect {
+                            x: preview_x + 2 + (dx as u16 * 2),
+                            y: preview_area.y + 2 + dy as u16,
+                            width: 2,
+                            height: 1,
+                        },
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Helper function to get color for a piece type (matching samtay/tetris)
+fn piece_color(piece_type: PieceType) -> Color {
+    match piece_type {
+        PieceType::I => Color::Cyan,
+        PieceType::O => Color::Yellow,
+        PieceType::T => Color::Magenta,
+        PieceType::S => Color::Green,
+        PieceType::Z => Color::Red,
+        PieceType::J => Color::Blue,
+        PieceType::L => Color::White, // White like samtay/tetris
+    }
+}
+
+/// Render the Tetris game results screen
+pub fn render_tetris_results(frame: &mut Frame, area: Rect, score: u32, app_state: &AppState) {
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    lines.push(Line::from(vec![Span::styled(
+        "  TETRIS",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    // Top 3 scores
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  TOP SCORES",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    if app_state.tetris_best_scores.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "  No scores yet",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]));
+    } else {
+        for (index, best) in app_state.tetris_best_scores.iter().take(3).enumerate() {
+            lines.push(Line::from(vec![Span::styled(
+                format!("  #{} - {} pts", index + 1, best),
+                Style::default().fg(Color::White),
+            )]));
+        }
+    }
+
+    // Current score with rank
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  YOUR SCORE",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    let rank = calculate_rank(&app_state.tetris_best_scores, score);
     let rank_color = match rank {
         1 => Color::Rgb(255, 215, 0),   // Gold
         2 => Color::Rgb(192, 192, 192), // Silver

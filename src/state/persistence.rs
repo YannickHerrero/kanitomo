@@ -57,6 +57,9 @@ pub struct AppState {
     /// Best Breakout scores (highest first)
     #[serde(default)]
     pub breakout_best_scores: Vec<u32>,
+    /// Best Tetris scores (highest first)
+    #[serde(default)]
+    pub tetris_best_scores: Vec<u32>,
 }
 
 fn default_version() -> u32 {
@@ -79,6 +82,7 @@ impl Default for AppState {
             minigame_best_scores: Vec::new(),
             snake_best_scores: Vec::new(),
             breakout_best_scores: Vec::new(),
+            tetris_best_scores: Vec::new(),
         }
     }
 }

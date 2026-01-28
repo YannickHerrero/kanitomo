@@ -403,6 +403,406 @@ impl SnakeGame {
 }
 
 // ============================================================================
+// Tetris Game
+// ============================================================================
+
+const TETRIS_GRID_WIDTH: usize = 10;
+const TETRIS_GRID_HEIGHT: usize = 20;
+const TETRIS_BASE_FALL_INTERVAL: f32 = 1.0; // 1 second at level 0
+const TETRIS_MIN_FALL_INTERVAL: f32 = 0.05; // 50ms at max speed
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PieceType {
+    I,
+    O,
+    T,
+    S,
+    Z,
+    J,
+    L,
+}
+
+impl PieceType {
+    pub fn shape(&self) -> Vec<Vec<bool>> {
+        match self {
+            // I piece: ....
+            //          ####
+            //          ....
+            //          ....
+            PieceType::I => vec![
+                vec![false, false, false, false],
+                vec![true, true, true, true],
+                vec![false, false, false, false],
+                vec![false, false, false, false],
+            ],
+            // O piece: .##.
+            //          .##.
+            //          ....
+            //          ....
+            PieceType::O => vec![
+                vec![false, true, true, false],
+                vec![false, true, true, false],
+                vec![false, false, false, false],
+                vec![false, false, false, false],
+            ],
+            // T piece: .#..
+            //          ###.
+            //          ....
+            //          ....
+            PieceType::T => vec![
+                vec![false, true, false, false],
+                vec![true, true, true, false],
+                vec![false, false, false, false],
+                vec![false, false, false, false],
+            ],
+            // S piece: .##.
+            //          ##..
+            //          ....
+            //          ....
+            PieceType::S => vec![
+                vec![false, true, true, false],
+                vec![true, true, false, false],
+                vec![false, false, false, false],
+                vec![false, false, false, false],
+            ],
+            // Z piece: ##..
+            //          .##.
+            //          ....
+            //          ....
+            PieceType::Z => vec![
+                vec![true, true, false, false],
+                vec![false, true, true, false],
+                vec![false, false, false, false],
+                vec![false, false, false, false],
+            ],
+            // J piece: #...
+            //          ###.
+            //          ....
+            //          ....
+            PieceType::J => vec![
+                vec![true, false, false, false],
+                vec![true, true, true, false],
+                vec![false, false, false, false],
+                vec![false, false, false, false],
+            ],
+            // L piece: ..#.
+            //          ###.
+            //          ....
+            //          ....
+            PieceType::L => vec![
+                vec![false, false, true, false],
+                vec![true, true, true, false],
+                vec![false, false, false, false],
+                vec![false, false, false, false],
+            ],
+        }
+    }
+
+    fn all() -> [PieceType; 7] {
+        [
+            PieceType::I,
+            PieceType::O,
+            PieceType::T,
+            PieceType::S,
+            PieceType::Z,
+            PieceType::J,
+            PieceType::L,
+        ]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Piece {
+    pub piece_type: PieceType,
+    pub x: i32,
+    pub y: i32,
+    pub rotation: u8, // 0-3
+}
+
+impl Piece {
+    fn new(piece_type: PieceType) -> Self {
+        Self {
+            piece_type,
+            x: (TETRIS_GRID_WIDTH as i32 / 2) - 2, // Center horizontally
+            y: 0,
+            rotation: 0,
+        }
+    }
+
+    fn shape(&self) -> Vec<Vec<bool>> {
+        let base = self.piece_type.shape();
+        let mut result = base.clone();
+
+        // Rotate the shape based on rotation value
+        for _ in 0..self.rotation {
+            result = rotate_shape_clockwise(&result);
+        }
+
+        result
+    }
+
+    pub fn blocks(&self) -> Vec<(i32, i32)> {
+        let shape = self.shape();
+        let mut blocks = Vec::new();
+
+        for (dy, row) in shape.iter().enumerate() {
+            for (dx, &filled) in row.iter().enumerate() {
+                if filled {
+                    blocks.push((self.x + dx as i32, self.y + dy as i32));
+                }
+            }
+        }
+
+        blocks
+    }
+}
+
+fn rotate_shape_clockwise(shape: &[Vec<bool>]) -> Vec<Vec<bool>> {
+    let n = shape.len();
+    let mut rotated = vec![vec![false; n]; n];
+
+    for i in 0..n {
+        for j in 0..n {
+            rotated[j][n - 1 - i] = shape[i][j];
+        }
+    }
+
+    rotated
+}
+
+#[derive(Debug)]
+pub struct TetrisGame {
+    pub grid: Vec<Vec<Option<PieceType>>>,
+    pub current_piece: Option<Piece>,
+    pub next_piece: PieceType,
+    pub score: u32,
+    pub level: u32,
+    pub lines_cleared: u32,
+    pub game_over: bool,
+    fall_timer: f32,
+    fall_interval: f32,
+    bag: Vec<PieceType>, // 7-bag randomizer
+    rng: rand::rngs::ThreadRng,
+}
+
+impl TetrisGame {
+    pub fn new() -> Self {
+        let mut rng = rand::thread_rng();
+        let mut bag = Self::new_bag(&mut rng);
+        let next_piece = bag.pop().unwrap();
+
+        let mut game = Self {
+            grid: vec![vec![None; TETRIS_GRID_WIDTH]; TETRIS_GRID_HEIGHT],
+            current_piece: None,
+            next_piece,
+            score: 0,
+            level: 0,
+            lines_cleared: 0,
+            game_over: false,
+            fall_timer: 0.0,
+            fall_interval: TETRIS_BASE_FALL_INTERVAL,
+            bag,
+            rng,
+        };
+
+        game.spawn_piece();
+        game
+    }
+
+    fn new_bag(rng: &mut rand::rngs::ThreadRng) -> Vec<PieceType> {
+        let mut bag = PieceType::all().to_vec();
+        use rand::seq::SliceRandom;
+        bag.shuffle(rng);
+        bag
+    }
+
+    fn spawn_piece(&mut self) {
+        if self.bag.is_empty() {
+            self.bag = Self::new_bag(&mut self.rng);
+        }
+
+        let piece_type = self.next_piece;
+        self.next_piece = self.bag.pop().unwrap();
+
+        let piece = Piece::new(piece_type);
+
+        // Check if spawn position is blocked
+        if self.check_collision(&piece) {
+            self.game_over = true;
+            return;
+        }
+
+        self.current_piece = Some(piece);
+    }
+
+    fn check_collision(&self, piece: &Piece) -> bool {
+        for (x, y) in piece.blocks() {
+            // Check bounds
+            if x < 0 || x >= TETRIS_GRID_WIDTH as i32 || y >= TETRIS_GRID_HEIGHT as i32 {
+                return true;
+            }
+
+            // Check grid (allow y < 0 for spawn area above grid)
+            if y >= 0 && self.grid[y as usize][x as usize].is_some() {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn move_piece(&mut self, dx: i32, dy: i32) -> bool {
+        if let Some(piece) = &self.current_piece {
+            let mut test_piece = piece.clone();
+            test_piece.x += dx;
+            test_piece.y += dy;
+
+            if !self.check_collision(&test_piece) {
+                if let Some(ref mut piece) = self.current_piece {
+                    piece.x = test_piece.x;
+                    piece.y = test_piece.y;
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn rotate_piece(&mut self) {
+        if let Some(piece) = &self.current_piece {
+            // O piece doesn't need rotation
+            if piece.piece_type == PieceType::O {
+                return;
+            }
+
+            let mut test_piece = piece.clone();
+            test_piece.rotation = (test_piece.rotation + 1) % 4;
+
+            // Try basic rotation first
+            if !self.check_collision(&test_piece) {
+                if let Some(ref mut piece) = self.current_piece {
+                    piece.rotation = test_piece.rotation;
+                }
+                return;
+            }
+
+            // Try wall kicks (simple offsets)
+            let kicks = [(1, 0), (-1, 0), (0, -1), (2, 0), (-2, 0)];
+            let orig_x = piece.x;
+            let orig_y = piece.y;
+            for (kick_x, kick_y) in kicks.iter() {
+                test_piece.x = orig_x + kick_x;
+                test_piece.y = orig_y + kick_y;
+
+                if !self.check_collision(&test_piece) {
+                    if let Some(ref mut piece) = self.current_piece {
+                        piece.x = test_piece.x;
+                        piece.y = test_piece.y;
+                        piece.rotation = test_piece.rotation;
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    pub fn soft_drop(&mut self) {
+        self.move_piece(0, 1);
+    }
+
+    pub fn hard_drop(&mut self) {
+        while self.move_piece(0, 1) {}
+        self.lock_piece();
+    }
+
+    fn lock_piece(&mut self) {
+        if let Some(piece) = self.current_piece.take() {
+            // Place piece on grid
+            for (x, y) in piece.blocks() {
+                if y >= 0 && y < TETRIS_GRID_HEIGHT as i32 && x >= 0 && x < TETRIS_GRID_WIDTH as i32
+                {
+                    self.grid[y as usize][x as usize] = Some(piece.piece_type);
+                }
+            }
+
+            // Check for completed lines
+            self.clear_lines();
+
+            // Spawn next piece
+            self.spawn_piece();
+        }
+    }
+
+    fn clear_lines(&mut self) {
+        let mut lines_to_clear = Vec::new();
+
+        for y in 0..TETRIS_GRID_HEIGHT {
+            if self.grid[y].iter().all(|cell| cell.is_some()) {
+                lines_to_clear.push(y);
+            }
+        }
+
+        if lines_to_clear.is_empty() {
+            return;
+        }
+
+        // Remove completed lines
+        for &y in lines_to_clear.iter() {
+            self.grid.remove(y);
+            self.grid.insert(0, vec![None; TETRIS_GRID_WIDTH]);
+        }
+
+        // Update score and stats
+        let lines_count = lines_to_clear.len() as u32;
+        self.lines_cleared += lines_count;
+
+        // Scoring: 1/2/3/4 lines = 100/300/500/800 * (level + 1)
+        let base_score = match lines_count {
+            1 => 100,
+            2 => 300,
+            3 => 500,
+            4 => 800,
+            _ => 0,
+        };
+        self.score += base_score * (self.level + 1);
+
+        // Level up every 10 lines
+        let new_level = self.lines_cleared / 10;
+        if new_level > self.level {
+            self.level = new_level;
+            self.update_fall_speed();
+        }
+    }
+
+    fn update_fall_speed(&mut self) {
+        // Fall speed increases with level
+        // Formula: base_interval * (0.9 ^ level), clamped to minimum
+        self.fall_interval = (TETRIS_BASE_FALL_INTERVAL * 0.9_f32.powi(self.level as i32))
+            .max(TETRIS_MIN_FALL_INTERVAL);
+    }
+
+    pub fn update(&mut self, dt: f32) {
+        if self.game_over {
+            return;
+        }
+
+        self.fall_timer += dt;
+        if self.fall_timer >= self.fall_interval {
+            self.fall_timer = 0.0;
+
+            // Try to move piece down
+            if !self.move_piece(0, 1) {
+                // Can't move down, lock the piece
+                self.lock_piece();
+            }
+        }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.game_over
+    }
+}
+
+// ============================================================================
 // Breakout Game
 // ============================================================================
 
