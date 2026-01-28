@@ -2,7 +2,7 @@ use crate::crab::Crab;
 use crate::environment::{Environment, TimeOfDay};
 use crate::git::{format_time_ago, CommitInfo, GitStats};
 use crate::state::{get_today_by_project, get_week_summary, AppState};
-use crate::ui::minigames::{BreakoutGame, PieceType, SnakeGame, TetrisGame, TetrisMode};
+use crate::ui::minigames::{BreakoutGame, DashGame, PieceType, SnakeGame, TetrisGame, TetrisMode};
 use crate::ui::CrabCatchGame;
 use chrono::Datelike;
 use ratatui::{
@@ -367,10 +367,14 @@ pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
         Span::styled("  [4] ", Style::default().fg(Color::Yellow)),
         Span::styled("Tetris", Style::default().fg(Color::White)),
     ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [5] ", Style::default().fg(Color::Yellow)),
+        Span::styled("Dash", Style::default().fg(Color::White)),
+    ]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  Press [1], [2], [3], or [4] to start",
+        "  Press [1], [2], [3], [4], or [5] to start",
         Style::default().fg(Color::DarkGray),
     )]));
     lines.push(Line::from(vec![Span::styled(
@@ -379,7 +383,7 @@ pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
     )]));
 
     let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
-    let overlay_width = 40.min(area.width.saturating_sub(4));
+    let overlay_width = 42.min(area.width.saturating_sub(4));
     let overlay_area = centered_rect(overlay_width, overlay_height, area);
 
     frame.render_widget(Clear, overlay_area);
@@ -1005,6 +1009,166 @@ pub fn render_breakout_game(frame: &mut Frame, game: &BreakoutGame, area: Rect) 
     }
 }
 
+/// Render the dash mini-game
+pub fn render_dash_game(frame: &mut Frame, game: &DashGame, area: Rect) {
+    if area.width == 0 || area.height < 4 {
+        return;
+    }
+
+    let inner_width = (game.bounds.0 * 2).min(area.width.saturating_sub(2)).max(2);
+    let inner_height = game.bounds.1.min(area.height.saturating_sub(2)).max(1);
+    let play_width = inner_width.saturating_add(2);
+    let play_height = inner_height.saturating_add(2);
+    let play_x = area.x + (area.width.saturating_sub(play_width) / 2);
+    let play_y = area.y + (area.height.saturating_sub(play_height) / 2);
+
+    let play_area = Rect {
+        x: play_x,
+        y: play_y,
+        width: play_width,
+        height: play_height,
+    };
+
+    let border_style = Style::default().fg(Color::DarkGray);
+    let horizontal_border = "-".repeat(play_width as usize);
+
+    frame.render_widget(
+        Paragraph::new(horizontal_border.clone()).style(border_style),
+        Rect {
+            x: play_area.x,
+            y: play_area.y,
+            width: play_width,
+            height: 1,
+        },
+    );
+    frame.render_widget(
+        Paragraph::new(horizontal_border).style(border_style),
+        Rect {
+            x: play_area.x,
+            y: play_area.y + play_height.saturating_sub(1),
+            width: play_width,
+            height: 1,
+        },
+    );
+
+    for dy in 1..play_height.saturating_sub(1) {
+        let left_wall = Rect {
+            x: play_area.x,
+            y: play_area.y + dy,
+            width: 1,
+            height: 1,
+        };
+        let right_wall = Rect {
+            x: play_area.x + play_width.saturating_sub(1),
+            y: play_area.y + dy,
+            width: 1,
+            height: 1,
+        };
+        frame.render_widget(Paragraph::new("|").style(border_style), left_wall);
+        frame.render_widget(Paragraph::new("|").style(border_style), right_wall);
+    }
+
+    let ground_y = play_area.y + play_height.saturating_sub(2);
+    let ground_line = "=".repeat(inner_width as usize);
+    frame.render_widget(
+        Paragraph::new(ground_line).style(Style::default().fg(Color::DarkGray)),
+        Rect {
+            x: play_area.x + 1,
+            y: ground_y,
+            width: inner_width,
+            height: 1,
+        },
+    );
+
+    let obstacle_color = Color::Red;
+    let ground_cell_y = game.bounds.1 as i32 - 1;
+    for obstacle in &game.obstacles {
+        let obs_x = obstacle.x.floor() as i32;
+        let obs_width = obstacle.width.ceil() as i32;
+        let obs_height = obstacle.height.round() as i32;
+
+        for dx in 0..obs_width {
+            for dy in 0..obs_height {
+                let cell_x = obs_x + dx;
+                let cell_y = ground_cell_y - dy;
+
+                if cell_x < 0
+                    || cell_y < 0
+                    || cell_x >= game.bounds.0 as i32
+                    || cell_y >= game.bounds.1 as i32
+                {
+                    continue;
+                }
+
+                let x = play_area.x + 1 + (cell_x as u16 * 2);
+                let y = play_area.y + 1 + cell_y as u16;
+                if x + 2 <= play_area.x + play_width.saturating_sub(1)
+                    && y < play_area.y + play_height.saturating_sub(1)
+                {
+                    render_block_cell(frame, x, y, obstacle_color, Modifier::BOLD);
+                }
+            }
+        }
+    }
+
+    let player_x = game.player_x().round() as i32;
+    let player_y = game.player_y.round() as i32;
+    if player_x >= 0
+        && player_y >= 0
+        && player_x < game.bounds.0 as i32
+        && player_y < game.bounds.1 as i32
+    {
+        let x = play_area.x + 1 + (player_x as u16 * 2);
+        let y = play_area.y + 1 + player_y as u16;
+        if x + 2 <= play_area.x + play_width.saturating_sub(1)
+            && y < play_area.y + play_height.saturating_sub(1)
+        {
+            render_block_cell(frame, x, y, Color::Rgb(120, 200, 255), Modifier::BOLD);
+        }
+    }
+
+    let hud_lines = vec![
+        Line::from(vec![Span::styled(
+            "  Dash",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.score.to_string(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Speed: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{:.1}", game.speed),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+    ];
+
+    let hud_width = 20.min(area.width.saturating_sub(2));
+    let hud_area = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: hud_width.max(1),
+        height: 5.min(area.height.saturating_sub(2)),
+    };
+
+    let hud_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    let hud_widget = Paragraph::new(hud_lines).block(hud_block);
+    frame.render_widget(hud_widget, hud_area);
+}
+
 /// Render the breakout game results screen
 pub fn render_breakout_results(
     frame: &mut Frame,
@@ -1068,6 +1232,87 @@ pub fn render_breakout_results(
         1 => Color::Rgb(255, 215, 0),   // Gold
         2 => Color::Rgb(192, 192, 192), // Silver
         3 => Color::Rgb(205, 127, 50),  // Bronze
+        _ => Color::Green,
+    };
+    lines.push(Line::from(vec![Span::styled(
+        format!("  #{} - {} pts", rank, score),
+        Style::default().fg(rank_color).add_modifier(Modifier::BOLD),
+    )]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [space] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let overlay_width = 36.min(area.width.saturating_sub(4));
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    frame.render_widget(Clear, overlay_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Results ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
+}
+
+/// Render the dash game results screen
+pub fn render_dash_results(frame: &mut Frame, area: Rect, score: u32, app_state: &AppState) {
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    lines.push(Line::from(vec![Span::styled(
+        "  DASH",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  TOP SCORES",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    if app_state.dash_best_scores.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "  No scores yet",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]));
+    } else {
+        for (index, best) in app_state.dash_best_scores.iter().take(3).enumerate() {
+            lines.push(Line::from(vec![Span::styled(
+                format!("  #{} - {} pts", index + 1, best),
+                Style::default().fg(Color::White),
+            )]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  YOUR SCORE",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    let rank = calculate_rank(&app_state.dash_best_scores, score);
+    let rank_color = match rank {
+        1 => Color::Rgb(255, 215, 0),
+        2 => Color::Rgb(192, 192, 192),
+        3 => Color::Rgb(205, 127, 50),
         _ => Color::Green,
     };
     lines.push(Line::from(vec![Span::styled(
@@ -1792,6 +2037,10 @@ pub fn render_help_overlay(
     lines.push(Line::from(vec![
         Span::styled("  arrows/hjkl ", Style::default().fg(Color::Yellow)),
         Span::styled("move", Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [space]/[up] ", Style::default().fg(Color::Yellow)),
+        Span::styled("jump (dash)", Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  [q] ", Style::default().fg(Color::Yellow)),

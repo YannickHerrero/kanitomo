@@ -6,7 +6,7 @@ use crate::state::{
     AppState, StateManager, TrackedCommit,
 };
 use crate::ui::minigames::{
-    BreakoutGame, Direction as SnakeDirection, SnakeGame, TetrisGame, TetrisMode,
+    BreakoutGame, DashGame, Direction as SnakeDirection, SnakeGame, TetrisGame, TetrisMode,
 };
 use crate::ui::{messages, widgets, CrabCatchGame};
 use anyhow::Result;
@@ -84,6 +84,10 @@ pub struct App {
     tetris_game: Option<TetrisGame>,
     /// Last Tetris score (for results screen)
     tetris_last_result: Option<(TetrisMode, u32, f32)>, // (mode, score, time)
+    /// Active Dash game state
+    dash_game: Option<DashGame>,
+    /// Last Dash score (for results screen)
+    dash_last_score: Option<u32>,
     /// Show Tetris mode selection menu
     show_tetris_mode_menu: bool,
     /// Whether to show the commit picker overlay (debug only)
@@ -178,6 +182,8 @@ impl App {
             breakout_last_score: None,
             tetris_game: None,
             tetris_last_result: None,
+            dash_game: None,
+            dash_last_score: None,
             show_tetris_mode_menu: false,
             show_commit_picker: false,
             commit_picker_items: Vec::new(),
@@ -228,6 +234,7 @@ impl App {
             || self.snake_last_score.is_some()
             || self.breakout_last_score.is_some()
             || self.tetris_last_result.is_some()
+            || self.dash_last_score.is_some()
         {
             match key {
                 KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => {
@@ -235,6 +242,7 @@ impl App {
                     self.snake_last_score = None;
                     self.breakout_last_score = None;
                     self.tetris_last_result = None;
+                    self.dash_last_score = None;
                 }
                 _ => {}
             }
@@ -333,6 +341,20 @@ impl App {
             return;
         }
 
+        // Handle active Dash game
+        if let Some(game) = self.dash_game.as_mut() {
+            match key {
+                KeyCode::Char(' ') | KeyCode::Up | KeyCode::Char('k') => {
+                    game.jump();
+                }
+                KeyCode::Char('q') | KeyCode::Esc => {
+                    self.finish_dash_game();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.show_tetris_mode_menu {
             match key {
                 KeyCode::Char('1') => {
@@ -372,6 +394,9 @@ impl App {
                 KeyCode::Char('4') => {
                     self.show_minigame_menu = false;
                     self.show_tetris_mode_menu = true;
+                }
+                KeyCode::Char('5') => {
+                    self.start_dash_game();
                 }
                 KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc => {
                     self.show_minigame_menu = false;
@@ -594,11 +619,23 @@ impl App {
             false
         };
 
+        let dash_finished = if let Some(game) = self.dash_game.as_mut() {
+            let size = self.last_terminal_size;
+            if size.0 > 0 && size.1 > 0 {
+                game.update_bounds(size);
+                game.update(dt);
+            }
+            game.is_finished()
+        } else {
+            false
+        };
+
         // Update crab only if no game is active
         if self.mini_game.is_none()
             && self.snake_game.is_none()
             && self.breakout_game.is_none()
             && self.tetris_game.is_none()
+            && self.dash_game.is_none()
             && bounds.0 > 0.0
             && bounds.1 > 0.0
         {
@@ -619,6 +656,10 @@ impl App {
 
         if tetris_finished {
             self.finish_tetris_game();
+        }
+
+        if dash_finished {
+            self.finish_dash_game();
         }
 
         // Check for file system events (new commits)
@@ -800,7 +841,8 @@ impl App {
         let any_game_active = self.mini_game.is_some()
             || self.snake_game.is_some()
             || self.breakout_game.is_some()
-            || self.tetris_game.is_some();
+            || self.tetris_game.is_some()
+            || self.dash_game.is_some();
         let show_stats_panel = self.show_stats && !any_game_active;
 
         // Layout: Title | Crab Area | Stats (optional)
@@ -849,6 +891,8 @@ impl App {
             widgets::render_breakout_game(frame, game, crab_area);
         } else if let Some(game) = &self.tetris_game {
             widgets::render_tetris_game(frame, game, crab_area);
+        } else if let Some(game) = &self.dash_game {
+            widgets::render_dash_game(frame, game, crab_area);
         } else {
             // 2. Environment background (sky, sun/moon, clouds, stars)
             widgets::render_environment_background(frame, &self.environment, crab_area);
@@ -908,6 +952,10 @@ impl App {
 
         if let Some((mode, score, time)) = self.tetris_last_result {
             widgets::render_tetris_results(frame, area, mode, score, time, &self.app_state);
+        }
+
+        if let Some(score) = self.dash_last_score {
+            widgets::render_dash_results(frame, area, score, &self.app_state);
         }
 
         if self.show_tetris_mode_menu {
@@ -1023,10 +1071,29 @@ impl App {
         self.set_temp_message(msg);
     }
 
+    fn start_dash_game(&mut self) {
+        let bounds = if self.last_terminal_size.0 > 0 && self.last_terminal_size.1 > 0 {
+            self.last_terminal_size
+        } else {
+            (self.environment.width, self.environment.height)
+        };
+        self.dash_game = Some(DashGame::new(bounds));
+        self.show_minigame_menu = false;
+        self.dash_last_score = None;
+        self.set_temp_message("Dash! Jump with SPACE.");
+    }
+
     fn finish_tetris_game(&mut self) {
         if let Some(game) = self.tetris_game.take() {
             self.record_tetris_result(game.mode, game.score, game.elapsed_time);
             self.tetris_last_result = Some((game.mode, game.score, game.elapsed_time));
+        }
+    }
+
+    fn finish_dash_game(&mut self) {
+        if let Some(game) = self.dash_game.take() {
+            self.record_dash_score(game.score);
+            self.dash_last_score = Some(game.score);
         }
     }
 
@@ -1071,6 +1138,14 @@ impl App {
                     self.app_state.tetris_survival_scores.truncate(100);
                 }
             }
+        }
+    }
+
+    fn record_dash_score(&mut self, score: u32) {
+        self.app_state.dash_best_scores.push(score);
+        self.app_state.dash_best_scores.sort_by(|a, b| b.cmp(a));
+        if self.app_state.dash_best_scores.len() > 100 {
+            self.app_state.dash_best_scores.truncate(100);
         }
     }
 

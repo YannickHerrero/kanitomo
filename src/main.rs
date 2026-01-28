@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use state::StateManager;
-use ui::minigames::{BreakoutGame, SnakeGame, TetrisGame, TetrisMode};
+use ui::minigames::{BreakoutGame, DashGame, SnakeGame, TetrisGame, TetrisMode};
 use ui::{widgets, App, CrabCatchGame};
 
 fn main() -> Result<()> {
@@ -111,9 +111,10 @@ fn handle_game_mode(game_name: Option<&str>) -> Result<()> {
         Some("snake") => run_standalone_game("snake"),
         Some("breakout") => run_standalone_game("breakout"),
         Some("tetris") => run_standalone_game("tetris"),
+        Some("dash") => run_standalone_game("dash"),
         Some(invalid) => {
             eprintln!(
-                "Unknown game '{}'. Available games: crabcatch, snake, breakout, tetris",
+                "Unknown game '{}'. Available games: crabcatch, snake, breakout, tetris, dash",
                 invalid
             );
             std::process::exit(1);
@@ -128,10 +129,12 @@ enum StandaloneState {
     PlayingSnake(SnakeGame),
     PlayingBreakout(BreakoutGame),
     PlayingTetris(TetrisGame),
+    PlayingDash(DashGame),
     ShowCrabCatchResults(u32),
     ShowSnakeResults(u32),
     ShowBreakoutResults(u32, bool),
     ShowTetrisResults(TetrisMode, u32, f32),
+    ShowDashResults(u32),
 }
 
 /// Run the game selection menu
@@ -173,6 +176,7 @@ fn run_standalone_game(game_name: &str) -> Result<()> {
         "snake" => StandaloneState::PlayingSnake(SnakeGame::new(bounds)),
         "breakout" => StandaloneState::PlayingBreakout(BreakoutGame::new(bounds)),
         "tetris" => StandaloneState::TetrisModeMenu,
+        "dash" => StandaloneState::PlayingDash(DashGame::new(bounds)),
         _ => unreachable!(),
     };
 
@@ -220,6 +224,9 @@ fn run_standalone_game_loop(
                 StandaloneState::PlayingTetris(game) => {
                     widgets::render_tetris_game(frame, game, area);
                 }
+                StandaloneState::PlayingDash(game) => {
+                    widgets::render_dash_game(frame, game, area);
+                }
                 StandaloneState::ShowCrabCatchResults(score) => {
                     widgets::render_minigame_results(frame, area, *score, &app_state);
                 }
@@ -231,6 +238,9 @@ fn run_standalone_game_loop(
                 }
                 StandaloneState::ShowTetrisResults(mode, score, time) => {
                     widgets::render_tetris_results(frame, area, *mode, *score, *time, &app_state);
+                }
+                StandaloneState::ShowDashResults(score) => {
+                    widgets::render_dash_results(frame, area, *score, &app_state);
                 }
             }
         })?;
@@ -267,6 +277,13 @@ fn run_standalone_game_loop(
                         }
                         KeyCode::Char('4') => {
                             current_state = StandaloneState::TetrisModeMenu;
+                        }
+                        KeyCode::Char('5') => {
+                            let size = terminal.size()?;
+                            current_state = StandaloneState::PlayingDash(DashGame::new((
+                                size.width,
+                                size.height,
+                            )));
                         }
                         KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char(' ') => {
                             return Ok(());
@@ -372,10 +389,20 @@ fn run_standalone_game_loop(
                         }
                         _ => {}
                     },
+                    StandaloneState::PlayingDash(game) => match key.code {
+                        KeyCode::Char(' ') | KeyCode::Up | KeyCode::Char('k') => {
+                            game.jump();
+                        }
+                        KeyCode::Char('q') => {
+                            return Ok(());
+                        }
+                        _ => {}
+                    },
                     StandaloneState::ShowCrabCatchResults(_)
                     | StandaloneState::ShowSnakeResults(_)
                     | StandaloneState::ShowBreakoutResults(_, _)
-                    | StandaloneState::ShowTetrisResults(_, _, _) => {
+                    | StandaloneState::ShowTetrisResults(_, _, _)
+                    | StandaloneState::ShowDashResults(_) => {
                         // Any key exits from results screen
                         return Ok(());
                     }
@@ -402,6 +429,9 @@ fn run_standalone_game_loop(
                     game.update_bounds(bounds);
                 }
                 StandaloneState::PlayingBreakout(game) => {
+                    game.update_bounds(bounds);
+                }
+                StandaloneState::PlayingDash(game) => {
                     game.update_bounds(bounds);
                 }
                 _ => {}
@@ -502,6 +532,19 @@ fn run_standalone_game_loop(
 
                     state_manager.save(&app_state)?;
                     current_state = StandaloneState::ShowTetrisResults(mode, score, time);
+                }
+            }
+            StandaloneState::PlayingDash(game) => {
+                game.update(dt);
+                if game.is_finished() {
+                    let score = game.score;
+                    app_state.dash_best_scores.push(score);
+                    app_state.dash_best_scores.sort_by(|a, b| b.cmp(a));
+                    if app_state.dash_best_scores.len() > 100 {
+                        app_state.dash_best_scores.truncate(100);
+                    }
+                    state_manager.save(&app_state)?;
+                    current_state = StandaloneState::ShowDashResults(score);
                 }
             }
             _ => {}
