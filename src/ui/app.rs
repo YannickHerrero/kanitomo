@@ -309,10 +309,16 @@ impl App {
                     game.soft_drop();
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
-                    game.rotate_piece();
+                    game.rotate_piece_cw();
+                }
+                KeyCode::Char('z') | KeyCode::Char('i') => {
+                    game.rotate_piece_ccw();
                 }
                 KeyCode::Char(' ') => {
                     game.hard_drop();
+                }
+                KeyCode::Char('c') => {
+                    game.hold();
                 }
                 KeyCode::Char('q') | KeyCode::Esc => {
                     self.finish_tetris_game();

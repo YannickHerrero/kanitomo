@@ -102,13 +102,25 @@ Break all the bricks with a bouncing ball. You have 3 lives, and higher rows are
 | `q` | Exit game |
 
 #### Tetris
-Classic block-stacking game using the 7-bag randomizer for fair piece distribution. Score points by clearing lines (1/2/3/4 lines = 100/300/500/800 × level). Level increases every 10 lines, making pieces fall faster.
+Modern Tetris implementation with full SRS (Super Rotation System) rotation, T-Spin detection, and Tetr.io-style lock delay. Features include:
+- **7-bag randomizer** for fair piece distribution
+- **SRS rotation** with proper wall kicks for advanced techniques
+- **T-Spin detection** with Mini/proper distinction and bonus scoring
+- **Lock delay** with move reset (Tetr.io tuning: 1s delay, 20 move resets)
+- **Hold piece** - store a piece for later use (once per piece)
+- **Ghost piece** preview showing where piece will land
+- **Dotted grid** background for better visibility
+- Line clear scoring: 1/2/3/4 lines = 100/300/500/800 × (level + 1)
+- T-Spin scoring: Mini 100-400 pts, proper 400-1600 pts (× level)
+- Level increases every 10 lines with faster piece fall speed
 
 | Key | Action |
 |-----|--------|
 | `←` `→` / `h` `l` | Move piece left/right |
 | `↓` / `j` | Soft drop (move down) |
 | `↑` / `k` | Rotate piece clockwise |
+| `z` / `i` | Rotate piece counter-clockwise |
+| `c` | Hold piece (swap with stored piece) |
 | `space` | Hard drop (instant drop) |
 | `q` | Exit game |
 

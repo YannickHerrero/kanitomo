@@ -1213,6 +1213,23 @@ pub fn render_tetris_game(frame: &mut Frame, game: &TetrisGame, area: Rect) {
         );
     }
 
+    // Draw dotted background grid for empty cells
+    for y in 0..20 {
+        for x in 0..10 {
+            if game.grid[y][x].is_none() {
+                frame.render_widget(
+                    Paragraph::new(" ·").style(Style::default().fg(Color::DarkGray)),
+                    Rect {
+                        x: play_area.x + 1 + (x as u16 * 2),
+                        y: play_area.y + 1 + y as u16,
+                        width: 2,
+                        height: 1,
+                    },
+                );
+            }
+        }
+    }
+
     // Draw locked blocks from grid (using solid blocks with bg color like samtay/tetris)
     for (y, row) in game.grid.iter().enumerate() {
         for (x, cell) in row.iter().enumerate() {
@@ -1227,6 +1244,33 @@ pub fn render_tetris_game(frame: &mut Frame, game: &TetrisGame, area: Rect) {
                         height: 1,
                     },
                 );
+            }
+        }
+    }
+
+    // Draw ghost piece (where piece would land)
+    if let Some(ghost_blocks) = game.get_ghost_position() {
+        if let Some(ref piece) = game.current_piece {
+            let ghost_color = piece_color(piece.piece_type);
+            for (x, y) in ghost_blocks {
+                if y >= 0 && x >= 0 && x < 10 && y < 20 {
+                    // Only draw ghost if it's different from current piece position
+                    let is_current_piece =
+                        piece.blocks().iter().any(|(px, py)| *px == x && *py == y);
+                    if !is_current_piece {
+                        frame.render_widget(
+                            Paragraph::new("[]").style(
+                                Style::default().fg(ghost_color).add_modifier(Modifier::DIM),
+                            ),
+                            Rect {
+                                x: play_area.x + 1 + (x as u16 * 2),
+                                y: play_area.y + 1 + y as u16,
+                                width: 2,
+                                height: 1,
+                            },
+                        );
+                    }
+                }
             }
         }
     }
@@ -1298,6 +1342,61 @@ pub fn render_tetris_game(frame: &mut Frame, game: &TetrisGame, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
     frame.render_widget(Paragraph::new(hud_lines).block(hud_block), hud_area);
+
+    // Draw hold piece on the left
+    if area.x > 0 && play_area.x >= 14 {
+        let hold_x = play_area.x.saturating_sub(14);
+        let hold_lines = vec![
+            Line::from(vec![Span::styled(
+                "  Hold",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(""),
+        ];
+
+        let hold_area = Rect {
+            x: hold_x,
+            y: area.y + 1,
+            width: 12,
+            height: 8,
+        };
+
+        let hold_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray));
+        frame.render_widget(Paragraph::new(hold_lines).block(hold_block), hold_area);
+
+        // Draw the held piece if any
+        if let Some(held_type) = game.hold_piece {
+            let shape = held_type.shape();
+            let color = piece_color(held_type);
+            let hold_style = if game.can_hold {
+                Style::default().bg(color)
+            } else {
+                // Dim if can't hold
+                Style::default().bg(color).add_modifier(Modifier::DIM)
+            };
+
+            for (dy, row) in shape.iter().enumerate() {
+                for (dx, filled) in row.iter().enumerate() {
+                    let filled = *filled;
+                    if filled && dx < 4 && dy < 4 {
+                        frame.render_widget(
+                            Paragraph::new("  ").style(hold_style),
+                            Rect {
+                                x: hold_x + 2 + (dx as u16 * 2),
+                                y: hold_area.y + 2 + dy as u16,
+                                width: 2,
+                                height: 1,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     // Draw next piece preview on the right
     let preview_x = play_area.x + grid_width + 2;
