@@ -578,73 +578,72 @@ impl Piece {
         }
     }
 
-    pub fn shape(&self) -> Vec<Vec<bool>> {
-        let base = self.piece_type.shape();
-        let mut result = base.clone();
-
-        // Rotate the shape based on rotation value
-        for _ in 0..self.rotation.to_u8() {
-            result = rotate_shape_clockwise(&result);
-        }
-
-        result
-    }
-
     pub fn blocks(&self) -> Vec<(i32, i32)> {
-        let shape = self.shape();
         let mut blocks = Vec::new();
-
-        for (dy, row) in shape.iter().enumerate() {
-            for (dx, &filled) in row.iter().enumerate() {
-                if filled {
-                    blocks.push((self.x + dx as i32, self.y + dy as i32));
-                }
-            }
+        for (dx, dy) in blocks_for_piece(self.piece_type, self.rotation) {
+            blocks.push((self.x + dx, self.y + dy));
         }
-
         blocks
     }
 }
 
-fn rotate_shape_clockwise(shape: &[Vec<bool>]) -> Vec<Vec<bool>> {
-    let n = shape.len();
-    let mut rotated = vec![vec![false; n]; n];
+fn blocks_for_piece(piece_type: PieceType, rotation: RotationState) -> Vec<(i32, i32)> {
+    let base = match piece_type {
+        PieceType::T => vec![(1, 0), (0, 1), (1, 1), (2, 1)],
+        PieceType::J => vec![(0, 0), (0, 1), (1, 1), (2, 1)],
+        PieceType::L => vec![(2, 0), (0, 1), (1, 1), (2, 1)],
+        PieceType::S => vec![(1, 0), (2, 0), (0, 1), (1, 1)],
+        PieceType::Z => vec![(0, 0), (1, 0), (1, 1), (2, 1)],
+        PieceType::O => vec![(1, 0), (2, 0), (1, 1), (2, 1)],
+        PieceType::I => vec![(0, 1), (1, 1), (2, 1), (3, 1)],
+    };
 
-    for i in 0..n {
-        for j in 0..n {
-            rotated[j][n - 1 - i] = shape[i][j];
-        }
+    let rotations = rotation.to_u8();
+    if piece_type == PieceType::O || rotations == 0 {
+        return base;
     }
 
+    let mut rotated = base;
+    for _ in 0..rotations {
+        rotated = rotated
+            .into_iter()
+            .map(|(x, y)| match piece_type {
+                PieceType::I => (3 - y, x), // Rotate around (1.5, 1.5)
+                _ => (2 - y, x),            // Rotate around (1, 1)
+            })
+            .collect();
+    }
     rotated
 }
 
 // SRS kick tables for J, L, S, T, Z pieces
+// NOTE: Y-axis is inverted (positive Y = down) compared to SRS standard (positive Y = up)
 fn get_jlstz_kicks(from: RotationState, to: RotationState) -> [(i32, i32); 5] {
     match (from, to) {
-        (RotationState::Zero, RotationState::R) => [(0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)],
-        (RotationState::R, RotationState::Zero) => [(0, 0), (1, 0), (1, -1), (0, 2), (1, 2)],
-        (RotationState::R, RotationState::Two) => [(0, 0), (1, 0), (1, -1), (0, 2), (1, 2)],
-        (RotationState::Two, RotationState::R) => [(0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)],
-        (RotationState::Two, RotationState::L) => [(0, 0), (1, 0), (1, 1), (0, -2), (1, -2)],
-        (RotationState::L, RotationState::Two) => [(0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)],
-        (RotationState::L, RotationState::Zero) => [(0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)],
-        (RotationState::Zero, RotationState::L) => [(0, 0), (1, 0), (1, 1), (0, -2), (1, -2)],
+        (RotationState::Zero, RotationState::R) => [(0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)],
+        (RotationState::R, RotationState::Zero) => [(0, 0), (1, 0), (1, 1), (0, -2), (1, -2)],
+        (RotationState::R, RotationState::Two) => [(0, 0), (1, 0), (1, 1), (0, -2), (1, -2)],
+        (RotationState::Two, RotationState::R) => [(0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)],
+        (RotationState::Two, RotationState::L) => [(0, 0), (1, 0), (1, -1), (0, 2), (1, 2)],
+        (RotationState::L, RotationState::Two) => [(0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)],
+        (RotationState::L, RotationState::Zero) => [(0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)],
+        (RotationState::Zero, RotationState::L) => [(0, 0), (1, 0), (1, -1), (0, 2), (1, 2)],
         _ => [(0, 0), (0, 0), (0, 0), (0, 0), (0, 0)], // Should not happen
     }
 }
 
 // SRS kick tables for I piece
+// NOTE: Y-axis is inverted (positive Y = down) compared to SRS standard (positive Y = up)
 fn get_i_kicks(from: RotationState, to: RotationState) -> [(i32, i32); 5] {
     match (from, to) {
-        (RotationState::Zero, RotationState::R) => [(0, 0), (-2, 0), (1, 0), (-2, -1), (1, 2)],
-        (RotationState::R, RotationState::Zero) => [(0, 0), (2, 0), (-1, 0), (2, 1), (-1, -2)],
-        (RotationState::R, RotationState::Two) => [(0, 0), (-1, 0), (2, 0), (-1, 2), (2, -1)],
-        (RotationState::Two, RotationState::R) => [(0, 0), (1, 0), (-2, 0), (1, -2), (-2, 1)],
-        (RotationState::Two, RotationState::L) => [(0, 0), (2, 0), (-1, 0), (2, 1), (-1, -2)],
-        (RotationState::L, RotationState::Two) => [(0, 0), (-2, 0), (1, 0), (-2, -1), (1, 2)],
-        (RotationState::L, RotationState::Zero) => [(0, 0), (1, 0), (-2, 0), (1, -2), (-2, 1)],
-        (RotationState::Zero, RotationState::L) => [(0, 0), (-1, 0), (2, 0), (-1, 2), (2, -1)],
+        (RotationState::Zero, RotationState::R) => [(0, 0), (-2, 0), (1, 0), (-2, 1), (1, -2)],
+        (RotationState::R, RotationState::Zero) => [(0, 0), (2, 0), (-1, 0), (2, -1), (-1, 2)],
+        (RotationState::R, RotationState::Two) => [(0, 0), (-1, 0), (2, 0), (-1, -2), (2, 1)],
+        (RotationState::Two, RotationState::R) => [(0, 0), (1, 0), (-2, 0), (1, 2), (-2, -1)],
+        (RotationState::Two, RotationState::L) => [(0, 0), (2, 0), (-1, 0), (2, -1), (-1, 2)],
+        (RotationState::L, RotationState::Two) => [(0, 0), (-2, 0), (1, 0), (-2, 1), (1, -2)],
+        (RotationState::L, RotationState::Zero) => [(0, 0), (1, 0), (-2, 0), (1, 2), (-2, -1)],
+        (RotationState::Zero, RotationState::L) => [(0, 0), (-1, 0), (2, 0), (-1, -2), (2, 1)],
         _ => [(0, 0), (0, 0), (0, 0), (0, 0), (0, 0)], // Should not happen
     }
 }
@@ -843,7 +842,9 @@ impl TetrisGame {
                 test_piece.x = piece.x + kick_x;
                 test_piece.y = piece.y + kick_y;
 
-                if !self.check_collision(&test_piece) {
+                let collides = self.check_collision(&test_piece);
+
+                if !collides {
                     if let Some(ref mut piece) = self.current_piece {
                         piece.x = test_piece.x;
                         piece.y = test_piece.y;
