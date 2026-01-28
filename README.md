@@ -61,6 +61,24 @@ kanitomo
 
 Kani will automatically discover git repositories in immediate subdirectories and react to commits in any of them.
 
+### Standalone Games
+
+You can also launch mini-games directly without starting the full app:
+
+```bash
+# Open game selection menu
+kanitomo --game
+kanitomo -g
+
+# Launch specific games directly
+kanitomo --game crabcatch
+kanitomo -g snake
+kanitomo --game breakout
+kanitomo -g tetris       # Shows Tetris mode menu first
+```
+
+Scores from standalone games are saved to the same leaderboards as in-app games.
+
 ### Keybindings
 
 | Key | Action |

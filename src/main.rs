@@ -12,15 +12,35 @@ use crossterm::{
 use ratatui::prelude::*;
 use std::env;
 use std::io::{self, stdout, Write};
+use std::time::{Duration, Instant};
 
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use state::StateManager;
-use ui::App;
+use ui::minigames::{BreakoutGame, SnakeGame, TetrisGame, TetrisMode};
+use ui::{widgets, App, CrabCatchGame};
 
 fn main() -> Result<()> {
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
     let debug_mode = args.iter().any(|arg| arg == "--debug" || arg == "-d");
     let reset_mode = args.iter().any(|arg| arg == "--reset");
+
+    // Check for --game or -g flag
+    let game_flag_index = args
+        .iter()
+        .position(|arg| arg == "--game" || arg == "-g" || arg.starts_with("--game="));
+
+    if let Some(idx) = game_flag_index {
+        let game_name = if args[idx].starts_with("--game=") {
+            Some(args[idx].strip_prefix("--game=").unwrap())
+        } else if idx + 1 < args.len() && !args[idx + 1].starts_with("-") {
+            Some(args[idx + 1].as_str())
+        } else {
+            None // No game name provided, show menu
+        };
+
+        return handle_game_mode(game_name);
+    }
 
     // Handle reset before setting up TUI
     if reset_mode {
@@ -81,4 +101,410 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, debug_mode: bo
     let mut app = App::new(debug_mode)?;
     app.run(terminal)?;
     Ok(())
+}
+
+/// Handle the --game flag
+fn handle_game_mode(game_name: Option<&str>) -> Result<()> {
+    match game_name {
+        None => run_game_selection_menu(),
+        Some("crabcatch") => run_standalone_game("crabcatch"),
+        Some("snake") => run_standalone_game("snake"),
+        Some("breakout") => run_standalone_game("breakout"),
+        Some("tetris") => run_standalone_game("tetris"),
+        Some(invalid) => {
+            eprintln!(
+                "Unknown game '{}'. Available games: crabcatch, snake, breakout, tetris",
+                invalid
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+enum StandaloneState {
+    GameMenu,
+    TetrisModeMenu,
+    PlayingCrabCatch(CrabCatchGame),
+    PlayingSnake(SnakeGame),
+    PlayingBreakout(BreakoutGame),
+    PlayingTetris(TetrisGame),
+    ShowCrabCatchResults(u32),
+    ShowSnakeResults(u32),
+    ShowBreakoutResults(u32, bool),
+    ShowTetrisResults(TetrisMode, u32, f32),
+}
+
+/// Run the game selection menu
+fn run_game_selection_menu() -> Result<()> {
+    // Set up terminal
+    enable_raw_mode()?;
+    let mut stdout = stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let result = run_standalone_game_loop(&mut terminal, StandaloneState::GameMenu);
+
+    // Restore terminal
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    result
+}
+
+/// Run a specific game directly
+fn run_standalone_game(game_name: &str) -> Result<()> {
+    // Set up terminal
+    enable_raw_mode()?;
+    let mut stdout = stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    // Get initial terminal size
+    let size = terminal.size()?;
+    let bounds = (size.width, size.height);
+
+    let initial_state = match game_name {
+        "crabcatch" => StandaloneState::PlayingCrabCatch(CrabCatchGame::new(bounds)),
+        "snake" => StandaloneState::PlayingSnake(SnakeGame::new(bounds)),
+        "breakout" => StandaloneState::PlayingBreakout(BreakoutGame::new(bounds)),
+        "tetris" => StandaloneState::TetrisModeMenu,
+        _ => unreachable!(),
+    };
+
+    let result = run_standalone_game_loop(&mut terminal, initial_state);
+
+    // Restore terminal
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    result
+}
+
+/// Main game loop for standalone mode
+fn run_standalone_game_loop(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    initial_state: StandaloneState,
+) -> Result<()> {
+    let state_manager = StateManager::new()?;
+    let mut app_state = state_manager.load()?;
+    let mut current_state = initial_state;
+    let mut last_update = Instant::now();
+    let mut last_size = terminal.size()?;
+
+    loop {
+        // Draw current state
+        terminal.draw(|frame| {
+            let area = frame.area();
+            match &current_state {
+                StandaloneState::GameMenu => {
+                    widgets::render_minigame_menu(frame, area);
+                }
+                StandaloneState::TetrisModeMenu => {
+                    widgets::render_tetris_mode_menu(frame, area);
+                }
+                StandaloneState::PlayingCrabCatch(game) => {
+                    widgets::render_crab_catch(frame, game, area);
+                }
+                StandaloneState::PlayingSnake(game) => {
+                    widgets::render_snake_game(frame, game, area);
+                }
+                StandaloneState::PlayingBreakout(game) => {
+                    widgets::render_breakout_game(frame, game, area);
+                }
+                StandaloneState::PlayingTetris(game) => {
+                    widgets::render_tetris_game(frame, game, area);
+                }
+                StandaloneState::ShowCrabCatchResults(score) => {
+                    widgets::render_minigame_results(frame, area, *score, &app_state);
+                }
+                StandaloneState::ShowSnakeResults(score) => {
+                    widgets::render_snake_results(frame, area, *score, &app_state);
+                }
+                StandaloneState::ShowBreakoutResults(score, victory) => {
+                    widgets::render_breakout_results(frame, area, *score, *victory, &app_state);
+                }
+                StandaloneState::ShowTetrisResults(mode, score, time) => {
+                    widgets::render_tetris_results(frame, area, *mode, *score, *time, &app_state);
+                }
+            }
+        })?;
+
+        // Handle input with timeout for animations
+        let timeout = Duration::from_millis(16); // ~60 FPS
+        if event::poll(timeout)? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+
+                match &mut current_state {
+                    StandaloneState::GameMenu => match key.code {
+                        KeyCode::Char('1') => {
+                            let size = terminal.size()?;
+                            current_state = StandaloneState::PlayingCrabCatch(CrabCatchGame::new(
+                                (size.width, size.height),
+                            ));
+                        }
+                        KeyCode::Char('2') => {
+                            let size = terminal.size()?;
+                            current_state = StandaloneState::PlayingSnake(SnakeGame::new((
+                                size.width,
+                                size.height,
+                            )));
+                        }
+                        KeyCode::Char('3') => {
+                            let size = terminal.size()?;
+                            current_state = StandaloneState::PlayingBreakout(BreakoutGame::new((
+                                size.width,
+                                size.height,
+                            )));
+                        }
+                        KeyCode::Char('4') => {
+                            current_state = StandaloneState::TetrisModeMenu;
+                        }
+                        KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char(' ') => {
+                            return Ok(());
+                        }
+                        _ => {}
+                    },
+                    StandaloneState::TetrisModeMenu => match key.code {
+                        KeyCode::Char('1') => {
+                            current_state =
+                                StandaloneState::PlayingTetris(TetrisGame::new(TetrisMode::Normal));
+                        }
+                        KeyCode::Char('2') => {
+                            current_state =
+                                StandaloneState::PlayingTetris(TetrisGame::new(TetrisMode::Sprint));
+                        }
+                        KeyCode::Char('3') => {
+                            current_state =
+                                StandaloneState::PlayingTetris(TetrisGame::new(TetrisMode::Zen));
+                        }
+                        KeyCode::Char('4') => {
+                            current_state =
+                                StandaloneState::PlayingTetris(TetrisGame::new(TetrisMode::Dig));
+                        }
+                        KeyCode::Char('5') => {
+                            current_state = StandaloneState::PlayingTetris(TetrisGame::new(
+                                TetrisMode::Survival,
+                            ));
+                        }
+                        KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char(' ') => {
+                            return Ok(());
+                        }
+                        _ => {}
+                    },
+                    StandaloneState::PlayingCrabCatch(game) => match key.code {
+                        KeyCode::Left | KeyCode::Char('h') => {
+                            game.move_crab(-1);
+                        }
+                        KeyCode::Right | KeyCode::Char('l') => {
+                            game.move_crab(1);
+                        }
+                        KeyCode::Char('q') => {
+                            return Ok(());
+                        }
+                        _ => {}
+                    },
+                    StandaloneState::PlayingSnake(game) => match key.code {
+                        KeyCode::Left | KeyCode::Char('h') => {
+                            game.set_direction(ui::minigames::Direction::Left);
+                        }
+                        KeyCode::Right | KeyCode::Char('l') => {
+                            game.set_direction(ui::minigames::Direction::Right);
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            game.set_direction(ui::minigames::Direction::Up);
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            game.set_direction(ui::minigames::Direction::Down);
+                        }
+                        KeyCode::Char('q') => {
+                            return Ok(());
+                        }
+                        _ => {}
+                    },
+                    StandaloneState::PlayingBreakout(game) => match key.code {
+                        KeyCode::Left | KeyCode::Char('h') => {
+                            game.move_paddle(-1.0);
+                        }
+                        KeyCode::Right | KeyCode::Char('l') => {
+                            game.move_paddle(1.0);
+                        }
+                        KeyCode::Char(' ') => {
+                            game.launch_ball();
+                        }
+                        KeyCode::Char('q') => {
+                            return Ok(());
+                        }
+                        _ => {}
+                    },
+                    StandaloneState::PlayingTetris(game) => match key.code {
+                        KeyCode::Left | KeyCode::Char('h') => {
+                            game.move_piece(-1, 0);
+                        }
+                        KeyCode::Right | KeyCode::Char('l') => {
+                            game.move_piece(1, 0);
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            game.soft_drop();
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            game.rotate_piece_cw();
+                        }
+                        KeyCode::Char('z') | KeyCode::Char('i') => {
+                            game.rotate_piece_ccw();
+                        }
+                        KeyCode::Char('c') => {
+                            game.hold();
+                        }
+                        KeyCode::Char(' ') => {
+                            game.hard_drop();
+                        }
+                        KeyCode::Char('q') => {
+                            return Ok(());
+                        }
+                        _ => {}
+                    },
+                    StandaloneState::ShowCrabCatchResults(_)
+                    | StandaloneState::ShowSnakeResults(_)
+                    | StandaloneState::ShowBreakoutResults(_, _)
+                    | StandaloneState::ShowTetrisResults(_, _, _) => {
+                        // Any key exits from results screen
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // Update game state
+        let now = Instant::now();
+        let dt = now.duration_since(last_update).as_secs_f32();
+        last_update = now;
+
+        // Check for terminal resize
+        let current_size = terminal.size()?;
+        if current_size != last_size {
+            last_size = current_size;
+            let bounds = (current_size.width, current_size.height);
+
+            match &mut current_state {
+                StandaloneState::PlayingCrabCatch(game) => {
+                    game.update_bounds(bounds);
+                }
+                StandaloneState::PlayingSnake(game) => {
+                    game.update_bounds(bounds);
+                }
+                StandaloneState::PlayingBreakout(game) => {
+                    game.update_bounds(bounds);
+                }
+                _ => {}
+            }
+        }
+
+        match &mut current_state {
+            StandaloneState::PlayingCrabCatch(game) => {
+                game.update(dt);
+                if game.is_finished() {
+                    let score = game.score;
+                    // Record score
+                    app_state.minigame_best_scores.push(score);
+                    app_state.minigame_best_scores.sort_by(|a, b| b.cmp(a));
+                    if app_state.minigame_best_scores.len() > 100 {
+                        app_state.minigame_best_scores.truncate(100);
+                    }
+                    state_manager.save(&app_state)?;
+                    current_state = StandaloneState::ShowCrabCatchResults(score);
+                }
+            }
+            StandaloneState::PlayingSnake(game) => {
+                game.update(dt);
+                if game.is_finished() {
+                    let score = game.score;
+                    // Record score
+                    app_state.snake_best_scores.push(score);
+                    app_state.snake_best_scores.sort_by(|a, b| b.cmp(a));
+                    if app_state.snake_best_scores.len() > 100 {
+                        app_state.snake_best_scores.truncate(100);
+                    }
+                    state_manager.save(&app_state)?;
+                    current_state = StandaloneState::ShowSnakeResults(score);
+                }
+            }
+            StandaloneState::PlayingBreakout(game) => {
+                game.update(dt);
+                if game.is_finished() {
+                    let score = game.score;
+                    let victory = game.victory;
+                    // Record score
+                    app_state.breakout_best_scores.push(score);
+                    app_state.breakout_best_scores.sort_by(|a, b| b.cmp(a));
+                    if app_state.breakout_best_scores.len() > 100 {
+                        app_state.breakout_best_scores.truncate(100);
+                    }
+                    state_manager.save(&app_state)?;
+                    current_state = StandaloneState::ShowBreakoutResults(score, victory);
+                }
+            }
+            StandaloneState::PlayingTetris(game) => {
+                game.update(dt);
+                if game.is_finished() {
+                    let mode = game.mode;
+                    let score = game.score;
+                    let time = game.elapsed_time;
+
+                    // Record score based on mode
+                    match mode {
+                        TetrisMode::Normal => {
+                            app_state.tetris_normal_scores.push(score);
+                            app_state.tetris_normal_scores.sort_by(|a, b| b.cmp(a));
+                            if app_state.tetris_normal_scores.len() > 100 {
+                                app_state.tetris_normal_scores.truncate(100);
+                            }
+                        }
+                        TetrisMode::Sprint => {
+                            app_state.tetris_sprint_times.push(time);
+                            app_state
+                                .tetris_sprint_times
+                                .sort_by(|a, b| a.partial_cmp(b).unwrap());
+                            if app_state.tetris_sprint_times.len() > 100 {
+                                app_state.tetris_sprint_times.truncate(100);
+                            }
+                        }
+                        TetrisMode::Zen => {
+                            app_state.tetris_zen_scores.push(score);
+                            app_state.tetris_zen_scores.sort_by(|a, b| b.cmp(a));
+                            if app_state.tetris_zen_scores.len() > 100 {
+                                app_state.tetris_zen_scores.truncate(100);
+                            }
+                        }
+                        TetrisMode::Dig => {
+                            app_state.tetris_dig_scores.push(score);
+                            app_state.tetris_dig_scores.sort_by(|a, b| b.cmp(a));
+                            if app_state.tetris_dig_scores.len() > 100 {
+                                app_state.tetris_dig_scores.truncate(100);
+                            }
+                        }
+                        TetrisMode::Survival => {
+                            app_state.tetris_survival_scores.push(score);
+                            app_state.tetris_survival_scores.sort_by(|a, b| b.cmp(a));
+                            if app_state.tetris_survival_scores.len() > 100 {
+                                app_state.tetris_survival_scores.truncate(100);
+                            }
+                        }
+                    }
+
+                    state_manager.save(&app_state)?;
+                    current_state = StandaloneState::ShowTetrisResults(mode, score, time);
+                }
+            }
+            _ => {}
+        }
+    }
 }
