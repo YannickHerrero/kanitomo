@@ -524,23 +524,23 @@ pub fn render_crab_catch(frame: &mut Frame, game: &CrabCatchGame, area: Rect) {
     frame.render_widget(crab_widget, crab_area);
 
     for food in &game.foods {
-        let x = play_area.x + 1 + food.x.round().max(0.0) as u16;
+        let x = play_area.x + 1 + (food.x.round().max(0.0) as u16);
         let y = play_area.y + food.y.round().max(0.0) as u16;
-        if x >= play_area.x + play_area.width.saturating_sub(1)
+        if x >= play_area.x + play_area.width.saturating_sub(2)
             || y >= play_area.y + play_area.height.saturating_sub(1)
         {
             continue;
         }
 
-        let food_area = Rect {
-            x,
-            y,
-            width: 1,
-            height: 1,
+        // Use different colors for visual variety
+        let food_color = match food.glyph {
+            '*' => Color::Yellow,
+            '+' => Color::Green,
+            'o' => Color::Red,
+            '@' => Color::Magenta,
+            _ => Color::Cyan,
         };
-        let food_widget =
-            Paragraph::new(food.glyph.to_string()).style(Style::default().fg(Color::Green));
-        frame.render_widget(food_widget, food_area);
+        render_block_cell(frame, x, y, food_color, Modifier::BOLD);
     }
 
     let remaining = game.remaining_time().as_secs();
@@ -612,7 +612,8 @@ pub fn render_snake_game(frame: &mut Frame, game: &SnakeGame, area: Rect) {
         return;
     }
 
-    let inner_width = game.bounds.0.min(area.width.saturating_sub(2)).max(1);
+    // Calculate play area with 2-char wide blocks
+    let inner_width = (game.bounds.0 * 2).min(area.width.saturating_sub(2)).max(2);
     let inner_height = game.bounds.1.min(area.height.saturating_sub(2)).max(1);
     let play_width = inner_width.saturating_add(2);
     let play_height = inner_height.saturating_add(2);
@@ -670,58 +671,33 @@ pub fn render_snake_game(frame: &mut Frame, game: &SnakeGame, area: Rect) {
         frame.render_widget(Paragraph::new("|").style(border_style), right_wall);
     }
 
-    // Draw food
-    let food_x = play_area.x + 1 + game.food.0 as u16;
+    // Draw food as block
+    let food_x = play_area.x + 1 + (game.food.0 as u16 * 2);
     let food_y = play_area.y + 1 + game.food.1 as u16;
-    if food_x < play_area.x + play_width.saturating_sub(1)
+    if food_x + 2 <= play_area.x + play_width.saturating_sub(1)
         && food_y < play_area.y + play_height.saturating_sub(1)
     {
-        let food_area = Rect {
-            x: food_x,
-            y: food_y,
-            width: 1,
-            height: 1,
-        };
-        let food_widget = Paragraph::new("@").style(
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        );
-        frame.render_widget(food_widget, food_area);
+        render_block_cell(frame, food_x, food_y, Color::Green, Modifier::BOLD);
     }
 
-    // Draw snake
+    // Draw snake as blocks
     for (i, segment) in game.snake.iter().enumerate() {
-        let seg_x = play_area.x + 1 + segment.0 as u16;
+        let seg_x = play_area.x + 1 + (segment.0 as u16 * 2);
         let seg_y = play_area.y + 1 + segment.1 as u16;
 
-        if seg_x >= play_area.x + play_width.saturating_sub(1)
-            || seg_y >= play_area.y + play_height.saturating_sub(1)
+        if seg_x + 2 <= play_area.x + play_width.saturating_sub(1)
+            && seg_y < play_area.y + play_height.saturating_sub(1)
         {
-            continue;
+            let (color, modifier) = if i == 0 {
+                // Head - brighter
+                (Color::Rgb(255, 120, 80), Modifier::BOLD)
+            } else {
+                // Body - darker
+                (Color::Rgb(200, 100, 60), Modifier::empty())
+            };
+
+            render_block_cell(frame, seg_x, seg_y, color, modifier);
         }
-
-        let seg_area = Rect {
-            x: seg_x,
-            y: seg_y,
-            width: 1,
-            height: 1,
-        };
-
-        let (char, style) = if i == 0 {
-            // Head
-            (
-                "#",
-                Style::default()
-                    .fg(Color::Rgb(255, 120, 80))
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            // Body
-            ("o", Style::default().fg(Color::Rgb(200, 100, 60)))
-        };
-
-        frame.render_widget(Paragraph::new(char).style(style), seg_area);
     }
 
     // Draw HUD
@@ -914,7 +890,7 @@ pub fn render_breakout_game(frame: &mut Frame, game: &BreakoutGame, area: Rect) 
         frame.render_widget(Paragraph::new("|").style(border_style), right_wall);
     }
 
-    // Draw bricks
+    // Draw bricks as blocks
     for brick in &game.bricks {
         let brick_x = play_area.x + 1 + brick.x;
         let brick_y = play_area.y + 1 + brick.y;
@@ -934,59 +910,38 @@ pub fn render_breakout_game(frame: &mut Frame, game: &BreakoutGame, area: Rect) 
             _ => Color::Cyan,
         };
 
-        let brick_area = Rect {
-            x: brick_x,
-            y: brick_y,
-            width: brick.width.min(play_area.x + play_width - brick_x - 1),
-            height: 1,
-        };
-
-        let brick_str = "=".repeat(brick.width as usize);
-        let brick_widget = Paragraph::new(brick_str).style(
-            Style::default()
-                .fg(brick_color)
-                .add_modifier(Modifier::BOLD),
-        );
-        frame.render_widget(brick_widget, brick_area);
+        // Render brick as solid blocks
+        for bx in 0..brick.width {
+            if brick_x + bx < play_area.x + play_width.saturating_sub(1) {
+                render_block_cell(frame, brick_x + bx, brick_y, brick_color, Modifier::BOLD);
+            }
+        }
     }
 
-    // Draw ball
+    // Draw ball as block
     let ball_x = play_area.x + 1 + game.ball_pos.0.round().max(0.0) as u16;
     let ball_y = play_area.y + 1 + game.ball_pos.1.round().max(0.0) as u16;
-    if ball_x < play_area.x + play_width.saturating_sub(1)
+    if ball_x + 2 <= play_area.x + play_width.saturating_sub(1)
         && ball_y < play_area.y + play_height.saturating_sub(1)
     {
-        let ball_area = Rect {
-            x: ball_x,
-            y: ball_y,
-            width: 1,
-            height: 1,
-        };
-        let ball_widget = Paragraph::new("o").style(
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        );
-        frame.render_widget(ball_widget, ball_area);
+        render_block_cell(frame, ball_x, ball_y, Color::White, Modifier::BOLD);
     }
 
-    // Draw paddle
+    // Draw paddle as blocks
     let paddle_x = play_area.x + 1 + game.paddle_x.round().max(0.0) as u16;
     let paddle_y = play_area.y + play_height.saturating_sub(2);
     if paddle_x + game.paddle_width <= play_area.x + play_width.saturating_sub(1) {
-        let paddle_area = Rect {
-            x: paddle_x,
-            y: paddle_y,
-            width: game.paddle_width,
-            height: 1,
-        };
-        let paddle_str = "=".repeat(game.paddle_width as usize);
-        let paddle_widget = Paragraph::new(paddle_str).style(
-            Style::default()
-                .fg(Color::Rgb(255, 120, 80))
-                .add_modifier(Modifier::BOLD),
-        );
-        frame.render_widget(paddle_widget, paddle_area);
+        for px in 0..game.paddle_width {
+            if paddle_x + px + 2 <= play_area.x + play_width.saturating_sub(1) {
+                render_block_cell(
+                    frame,
+                    paddle_x + px,
+                    paddle_y,
+                    Color::Rgb(255, 120, 80),
+                    Modifier::BOLD,
+                );
+            }
+        }
     }
 
     // Draw HUD
@@ -1471,6 +1426,19 @@ pub fn render_tetris_game(frame: &mut Frame, game: &TetrisGame, area: Rect) {
             }
         }
     }
+}
+
+/// Render a solid block cell (2 chars wide) with background color
+fn render_block_cell(frame: &mut Frame, x: u16, y: u16, color: Color, modifier: Modifier) {
+    let block_area = Rect {
+        x,
+        y,
+        width: 2,
+        height: 1,
+    };
+    let block_widget =
+        Paragraph::new("  ").style(Style::default().bg(color).add_modifier(modifier));
+    frame.render_widget(block_widget, block_area);
 }
 
 /// Helper function to get color for a piece type (matching samtay/tetris)
