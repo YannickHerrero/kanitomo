@@ -16,7 +16,9 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use state::StateManager;
-use ui::minigames::{BreakoutGame, DashGame, SnakeGame, TetrisGame, TetrisMode};
+use ui::minigames::{
+    BreakoutGame, DashGame, Game2048, Game2048Move, SnakeGame, TetrisGame, TetrisMode,
+};
 use ui::{widgets, App, CrabCatchGame};
 
 fn main() -> Result<()> {
@@ -112,9 +114,10 @@ fn handle_game_mode(game_name: Option<&str>) -> Result<()> {
         Some("breakout") => run_standalone_game("breakout"),
         Some("tetris") => run_standalone_game("tetris"),
         Some("dash") => run_standalone_game("dash"),
+        Some("2048") => run_standalone_game("2048"),
         Some(invalid) => {
             eprintln!(
-                "Unknown game '{}'. Available games: crabcatch, snake, breakout, tetris, dash",
+                "Unknown game '{}'. Available games: crabcatch, snake, breakout, tetris, dash, 2048",
                 invalid
             );
             std::process::exit(1);
@@ -130,11 +133,13 @@ enum StandaloneState {
     PlayingBreakout(BreakoutGame),
     PlayingTetris(TetrisGame),
     PlayingDash(DashGame),
+    Playing2048(Game2048),
     ShowCrabCatchResults(u32),
     ShowSnakeResults(u32),
     ShowBreakoutResults(u32, bool),
     ShowTetrisResults(TetrisMode, u32, f32),
     ShowDashResults(u32),
+    Show2048Results(u32, u32),
 }
 
 /// Run the game selection menu
@@ -177,6 +182,7 @@ fn run_standalone_game(game_name: &str) -> Result<()> {
         "breakout" => StandaloneState::PlayingBreakout(BreakoutGame::new(bounds)),
         "tetris" => StandaloneState::TetrisModeMenu,
         "dash" => StandaloneState::PlayingDash(DashGame::new(bounds)),
+        "2048" => StandaloneState::Playing2048(Game2048::new()),
         _ => unreachable!(),
     };
 
@@ -227,6 +233,9 @@ fn run_standalone_game_loop(
                 StandaloneState::PlayingDash(game) => {
                     widgets::render_dash_game(frame, game, area);
                 }
+                StandaloneState::Playing2048(game) => {
+                    widgets::render_2048_game(frame, game, area);
+                }
                 StandaloneState::ShowCrabCatchResults(score) => {
                     widgets::render_minigame_results(frame, area, *score, &app_state);
                 }
@@ -241,6 +250,9 @@ fn run_standalone_game_loop(
                 }
                 StandaloneState::ShowDashResults(score) => {
                     widgets::render_dash_results(frame, area, *score, &app_state);
+                }
+                StandaloneState::Show2048Results(score, max_tile) => {
+                    widgets::render_2048_results(frame, area, *score, *max_tile, &app_state);
                 }
             }
         })?;
@@ -284,6 +296,9 @@ fn run_standalone_game_loop(
                                 size.width,
                                 size.height,
                             )));
+                        }
+                        KeyCode::Char('6') => {
+                            current_state = StandaloneState::Playing2048(Game2048::new());
                         }
                         KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char(' ') => {
                             return Ok(());
@@ -398,11 +413,33 @@ fn run_standalone_game_loop(
                         }
                         _ => {}
                     },
+                    StandaloneState::Playing2048(game) => match key.code {
+                        KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('w') => {
+                            game.make_move(Game2048Move::Up);
+                        }
+                        KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('s') => {
+                            game.make_move(Game2048Move::Down);
+                        }
+                        KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('a') => {
+                            game.make_move(Game2048Move::Left);
+                        }
+                        KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('d') => {
+                            game.make_move(Game2048Move::Right);
+                        }
+                        KeyCode::Char('r') => {
+                            game.reset();
+                        }
+                        KeyCode::Char('q') => {
+                            return Ok(());
+                        }
+                        _ => {}
+                    },
                     StandaloneState::ShowCrabCatchResults(_)
                     | StandaloneState::ShowSnakeResults(_)
                     | StandaloneState::ShowBreakoutResults(_, _)
                     | StandaloneState::ShowTetrisResults(_, _, _)
-                    | StandaloneState::ShowDashResults(_) => {
+                    | StandaloneState::ShowDashResults(_)
+                    | StandaloneState::Show2048Results(_, _) => {
                         // Any key exits from results screen
                         return Ok(());
                     }
@@ -545,6 +582,19 @@ fn run_standalone_game_loop(
                     }
                     state_manager.save(&app_state)?;
                     current_state = StandaloneState::ShowDashResults(score);
+                }
+            }
+            StandaloneState::Playing2048(game) => {
+                if game.is_finished() {
+                    let score = game.score;
+                    let max_tile = game.max_tile();
+                    app_state.game_2048_best_scores.push(score);
+                    app_state.game_2048_best_scores.sort_by(|a, b| b.cmp(a));
+                    if app_state.game_2048_best_scores.len() > 100 {
+                        app_state.game_2048_best_scores.truncate(100);
+                    }
+                    state_manager.save(&app_state)?;
+                    current_state = StandaloneState::Show2048Results(score, max_tile);
                 }
             }
             _ => {}

@@ -2,7 +2,9 @@ use crate::crab::Crab;
 use crate::environment::{Environment, TimeOfDay};
 use crate::git::{format_time_ago, CommitInfo, GitStats};
 use crate::state::{get_today_by_project, get_week_summary, AppState};
-use crate::ui::minigames::{BreakoutGame, DashGame, PieceType, SnakeGame, TetrisGame, TetrisMode};
+use crate::ui::minigames::{
+    BreakoutGame, DashGame, Game2048, PieceType, SnakeGame, TetrisGame, TetrisMode,
+};
 use crate::ui::CrabCatchGame;
 use chrono::Datelike;
 use ratatui::{
@@ -371,10 +373,14 @@ pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
         Span::styled("  [5] ", Style::default().fg(Color::Yellow)),
         Span::styled("Dash", Style::default().fg(Color::White)),
     ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [6] ", Style::default().fg(Color::Yellow)),
+        Span::styled("2048", Style::default().fg(Color::White)),
+    ]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  Press [1], [2], [3], [4], or [5] to start",
+        "  Press [1]..[6] to start",
         Style::default().fg(Color::DarkGray),
     )]));
     lines.push(Line::from(vec![Span::styled(
@@ -383,7 +389,7 @@ pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
     )]));
 
     let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
-    let overlay_width = 42.min(area.width.saturating_sub(4));
+    let overlay_width = 44.min(area.width.saturating_sub(4));
     let overlay_area = centered_rect(overlay_width, overlay_height, area);
 
     frame.render_widget(Clear, overlay_area);
@@ -1169,6 +1175,185 @@ pub fn render_dash_game(frame: &mut Frame, game: &DashGame, area: Rect) {
     frame.render_widget(hud_widget, hud_area);
 }
 
+/// Render the 2048 mini-game
+pub fn render_2048_game(frame: &mut Frame, game: &Game2048, area: Rect) {
+    let tile_width: u16 = 7;
+    let tile_height: u16 = 3;
+    let grid_width = tile_width * 4;
+    let grid_height = tile_height * 4;
+    let play_width = grid_width + 2;
+    let play_height = grid_height + 2;
+
+    if area.width < play_width || area.height < play_height {
+        return;
+    }
+
+    let play_x = area.x + (area.width.saturating_sub(play_width) / 2);
+    let play_y = area.y + (area.height.saturating_sub(play_height) / 2);
+
+    let play_area = Rect {
+        x: play_x,
+        y: play_y,
+        width: play_width,
+        height: play_height,
+    };
+
+    let border_style = Style::default().fg(Color::DarkGray);
+    let horizontal_border = "-".repeat(play_width as usize);
+
+    frame.render_widget(
+        Paragraph::new(horizontal_border.clone()).style(border_style),
+        Rect {
+            x: play_area.x,
+            y: play_area.y,
+            width: play_width,
+            height: 1,
+        },
+    );
+    frame.render_widget(
+        Paragraph::new(horizontal_border).style(border_style),
+        Rect {
+            x: play_area.x,
+            y: play_area.y + play_height.saturating_sub(1),
+            width: play_width,
+            height: 1,
+        },
+    );
+
+    for dy in 1..play_height.saturating_sub(1) {
+        frame.render_widget(
+            Paragraph::new("|").style(border_style),
+            Rect {
+                x: play_area.x,
+                y: play_area.y + dy,
+                width: 1,
+                height: 1,
+            },
+        );
+        frame.render_widget(
+            Paragraph::new("|").style(border_style),
+            Rect {
+                x: play_area.x + play_width.saturating_sub(1),
+                y: play_area.y + dy,
+                width: 1,
+                height: 1,
+            },
+        );
+    }
+
+    for row in 0..4 {
+        for col in 0..4 {
+            let value = game.board[row][col];
+            let (fg, bg) = tile_colors(value);
+            let label = tile_label(value);
+            let modifier = if value >= 128 {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            };
+            let tile_style = if value == 0 {
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::DIM)
+            } else {
+                Style::default().bg(bg).fg(fg).add_modifier(modifier)
+            };
+
+            let tile_x = play_area.x + 1 + (col as u16 * tile_width);
+            let tile_y = play_area.y + 1 + (row as u16 * tile_height);
+
+            for dy in 0..tile_height {
+                let text = if dy == 1 {
+                    label.clone()
+                } else {
+                    "       ".to_string()
+                };
+                frame.render_widget(
+                    Paragraph::new(text).style(tile_style),
+                    Rect {
+                        x: tile_x,
+                        y: tile_y + dy,
+                        width: tile_width,
+                        height: 1,
+                    },
+                );
+            }
+        }
+    }
+
+    let hud_lines = vec![
+        Line::from(vec![Span::styled(
+            "  2048",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.score.to_string(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Max: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.max_tile().to_string(),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+    ];
+
+    let hud_width = 22.min(area.width.saturating_sub(2));
+    let hud_area = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: hud_width.max(1),
+        height: 5.min(area.height.saturating_sub(2)),
+    };
+
+    let hud_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    let hud_widget = Paragraph::new(hud_lines).block(hud_block);
+    frame.render_widget(hud_widget, hud_area);
+}
+
+fn tile_label(value: u32) -> String {
+    if value == 0 {
+        return "   ·   ".to_string();
+    }
+
+    let label = value.to_string();
+    let total = 7usize;
+    let padding = total.saturating_sub(label.len());
+    let left = padding / 2;
+    let right = padding.saturating_sub(left);
+    format!("{}{}{}", " ".repeat(left), label, " ".repeat(right))
+}
+
+fn tile_colors(value: u32) -> (Color, Color) {
+    match value {
+        0 => (Color::DarkGray, Color::Reset),
+        2 => (Color::Rgb(119, 110, 101), Color::Rgb(238, 228, 218)),
+        4 => (Color::Rgb(119, 110, 101), Color::Rgb(237, 224, 200)),
+        8 => (Color::Rgb(249, 246, 242), Color::Rgb(242, 177, 121)),
+        16 => (Color::Rgb(249, 246, 242), Color::Rgb(245, 149, 99)),
+        32 => (Color::Rgb(249, 246, 242), Color::Rgb(246, 124, 95)),
+        64 => (Color::Rgb(249, 246, 242), Color::Rgb(246, 94, 59)),
+        128 => (Color::Rgb(249, 246, 242), Color::Rgb(237, 207, 114)),
+        256 => (Color::Rgb(249, 246, 242), Color::Rgb(237, 204, 97)),
+        512 => (Color::Rgb(249, 246, 242), Color::Rgb(237, 200, 80)),
+        1024 => (Color::Rgb(249, 246, 242), Color::Rgb(237, 197, 63)),
+        2048 => (Color::Rgb(249, 246, 242), Color::Rgb(237, 194, 46)),
+        _ => (Color::Rgb(249, 246, 242), Color::Rgb(60, 58, 50)),
+    }
+}
+
 /// Render the breakout game results screen
 pub fn render_breakout_results(
     frame: &mut Frame,
@@ -1318,6 +1503,100 @@ pub fn render_dash_results(frame: &mut Frame, area: Rect, score: u32, app_state:
     lines.push(Line::from(vec![Span::styled(
         format!("  #{} - {} pts", rank, score),
         Style::default().fg(rank_color).add_modifier(Modifier::BOLD),
+    )]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [space] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let overlay_width = 36.min(area.width.saturating_sub(4));
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    frame.render_widget(Clear, overlay_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Results ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
+}
+
+/// Render the 2048 results screen
+pub fn render_2048_results(
+    frame: &mut Frame,
+    area: Rect,
+    score: u32,
+    max_tile: u32,
+    app_state: &AppState,
+) {
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    lines.push(Line::from(vec![Span::styled(
+        "  2048",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  TOP SCORES",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    if app_state.game_2048_best_scores.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "  No scores yet",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]));
+    } else {
+        for (index, best) in app_state.game_2048_best_scores.iter().take(3).enumerate() {
+            lines.push(Line::from(vec![Span::styled(
+                format!("  #{} - {} pts", index + 1, best),
+                Style::default().fg(Color::White),
+            )]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  YOUR SCORE",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    let rank = calculate_rank(&app_state.game_2048_best_scores, score);
+    let rank_color = match rank {
+        1 => Color::Rgb(255, 215, 0),
+        2 => Color::Rgb(192, 192, 192),
+        3 => Color::Rgb(205, 127, 50),
+        _ => Color::Green,
+    };
+    lines.push(Line::from(vec![Span::styled(
+        format!("  #{} - {} pts", rank, score),
+        Style::default().fg(rank_color).add_modifier(Modifier::BOLD),
+    )]));
+
+    lines.push(Line::from(vec![Span::styled(
+        format!("  Max Tile: {}", max_tile),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
     )]));
 
     lines.push(Line::from(""));
@@ -2041,6 +2320,10 @@ pub fn render_help_overlay(
     lines.push(Line::from(vec![
         Span::styled("  [space]/[up] ", Style::default().fg(Color::Yellow)),
         Span::styled("jump (dash)", Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [r] ", Style::default().fg(Color::Yellow)),
+        Span::styled("restart (2048)", Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  [q] ", Style::default().fg(Color::Yellow)),
