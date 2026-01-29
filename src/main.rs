@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use state::StateManager;
 use ui::minigames::{
-    BreakoutGame, DashGame, Game2048, Game2048Move, SnakeGame, TetrisGame, TetrisMode,
+    BreakoutGame, DashGame, Game2048, Game2048Move, SnakeGame, TetrisGame, TetrisMode, VsrgGame,
 };
 use ui::{widgets, App, CrabCatchGame};
 
@@ -115,9 +115,10 @@ fn handle_game_mode(game_name: Option<&str>) -> Result<()> {
         Some("tetris") => run_standalone_game("tetris"),
         Some("dash") => run_standalone_game("dash"),
         Some("2048") => run_standalone_game("2048"),
+        Some("vsrg") => run_standalone_game("vsrg"),
         Some(invalid) => {
             eprintln!(
-                "Unknown game '{}'. Available games: crabcatch, snake, breakout, tetris, dash, 2048",
+                "Unknown game '{}'. Available games: crabcatch, snake, breakout, tetris, dash, 2048, vsrg",
                 invalid
             );
             std::process::exit(1);
@@ -134,12 +135,14 @@ enum StandaloneState {
     PlayingTetris(TetrisGame),
     PlayingDash(DashGame),
     Playing2048(Game2048),
+    PlayingVsrg(VsrgGame),
     ShowCrabCatchResults(u32),
     ShowSnakeResults(u32),
     ShowBreakoutResults(u32, bool),
     ShowTetrisResults(TetrisMode, u32, f32),
     ShowDashResults(u32),
     Show2048Results(u32, u32),
+    ShowVsrgResults(u32, f32, u32),
 }
 
 /// Run the game selection menu
@@ -183,6 +186,7 @@ fn run_standalone_game(game_name: &str) -> Result<()> {
         "tetris" => StandaloneState::TetrisModeMenu,
         "dash" => StandaloneState::PlayingDash(DashGame::new(bounds)),
         "2048" => StandaloneState::Playing2048(Game2048::new()),
+        "vsrg" => StandaloneState::PlayingVsrg(VsrgGame::new(bounds)),
         _ => unreachable!(),
     };
 
@@ -236,6 +240,9 @@ fn run_standalone_game_loop(
                 StandaloneState::Playing2048(game) => {
                     widgets::render_2048_game(frame, game, area);
                 }
+                StandaloneState::PlayingVsrg(game) => {
+                    widgets::render_vsrg_game(frame, game, area);
+                }
                 StandaloneState::ShowCrabCatchResults(score) => {
                     widgets::render_minigame_results(frame, area, *score, &app_state);
                 }
@@ -253,6 +260,11 @@ fn run_standalone_game_loop(
                 }
                 StandaloneState::Show2048Results(score, max_tile) => {
                     widgets::render_2048_results(frame, area, *score, *max_tile, &app_state);
+                }
+                StandaloneState::ShowVsrgResults(score, accuracy, max_combo) => {
+                    widgets::render_vsrg_results(
+                        frame, area, *score, *accuracy, *max_combo, &app_state,
+                    );
                 }
             }
         })?;
@@ -299,6 +311,13 @@ fn run_standalone_game_loop(
                         }
                         KeyCode::Char('6') => {
                             current_state = StandaloneState::Playing2048(Game2048::new());
+                        }
+                        KeyCode::Char('7') => {
+                            let size = terminal.size()?;
+                            current_state = StandaloneState::PlayingVsrg(VsrgGame::new((
+                                size.width,
+                                size.height,
+                            )));
                         }
                         KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char(' ') => {
                             return Ok(());
@@ -434,12 +453,31 @@ fn run_standalone_game_loop(
                         }
                         _ => {}
                     },
+                    StandaloneState::PlayingVsrg(game) => match key.code {
+                        KeyCode::Char('d') => {
+                            game.hit(0);
+                        }
+                        KeyCode::Char('f') => {
+                            game.hit(1);
+                        }
+                        KeyCode::Char('j') => {
+                            game.hit(2);
+                        }
+                        KeyCode::Char('k') => {
+                            game.hit(3);
+                        }
+                        KeyCode::Char('q') => {
+                            return Ok(());
+                        }
+                        _ => {}
+                    },
                     StandaloneState::ShowCrabCatchResults(_)
                     | StandaloneState::ShowSnakeResults(_)
                     | StandaloneState::ShowBreakoutResults(_, _)
                     | StandaloneState::ShowTetrisResults(_, _, _)
                     | StandaloneState::ShowDashResults(_)
-                    | StandaloneState::Show2048Results(_, _) => {
+                    | StandaloneState::Show2048Results(_, _)
+                    | StandaloneState::ShowVsrgResults(_, _, _) => {
                         // Any key exits from results screen
                         return Ok(());
                     }
@@ -469,6 +507,9 @@ fn run_standalone_game_loop(
                     game.update_bounds(bounds);
                 }
                 StandaloneState::PlayingDash(game) => {
+                    game.update_bounds(bounds);
+                }
+                StandaloneState::PlayingVsrg(game) => {
                     game.update_bounds(bounds);
                 }
                 _ => {}
@@ -595,6 +636,21 @@ fn run_standalone_game_loop(
                     }
                     state_manager.save(&app_state)?;
                     current_state = StandaloneState::Show2048Results(score, max_tile);
+                }
+            }
+            StandaloneState::PlayingVsrg(game) => {
+                game.update(dt);
+                if game.is_finished() {
+                    let score = game.score;
+                    let accuracy = game.accuracy();
+                    let max_combo = game.max_combo;
+                    app_state.vsrg_best_scores.push(score);
+                    app_state.vsrg_best_scores.sort_by(|a, b| b.cmp(a));
+                    if app_state.vsrg_best_scores.len() > 100 {
+                        app_state.vsrg_best_scores.truncate(100);
+                    }
+                    state_manager.save(&app_state)?;
+                    current_state = StandaloneState::ShowVsrgResults(score, accuracy, max_combo);
                 }
             }
             _ => {}

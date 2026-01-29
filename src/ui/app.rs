@@ -7,7 +7,7 @@ use crate::state::{
 };
 use crate::ui::minigames::{
     BreakoutGame, DashGame, Direction as SnakeDirection, Game2048, Game2048Move, SnakeGame,
-    TetrisGame, TetrisMode,
+    TetrisGame, TetrisMode, VsrgGame,
 };
 use crate::ui::{messages, widgets, CrabCatchGame};
 use anyhow::Result;
@@ -93,6 +93,10 @@ pub struct App {
     game_2048: Option<Game2048>,
     /// Last 2048 result (score, max tile)
     game_2048_last_result: Option<(u32, u32)>,
+    /// Active VSRG game state
+    vsrg_game: Option<VsrgGame>,
+    /// Last VSRG result (score, accuracy, max combo)
+    vsrg_last_result: Option<(u32, f32, u32)>,
     /// Show Tetris mode selection menu
     show_tetris_mode_menu: bool,
     /// Whether to show the commit picker overlay (debug only)
@@ -191,6 +195,8 @@ impl App {
             dash_last_score: None,
             game_2048: None,
             game_2048_last_result: None,
+            vsrg_game: None,
+            vsrg_last_result: None,
             show_tetris_mode_menu: false,
             show_commit_picker: false,
             commit_picker_items: Vec::new(),
@@ -243,6 +249,7 @@ impl App {
             || self.tetris_last_result.is_some()
             || self.dash_last_score.is_some()
             || self.game_2048_last_result.is_some()
+            || self.vsrg_last_result.is_some()
         {
             match key {
                 KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => {
@@ -252,6 +259,7 @@ impl App {
                     self.tetris_last_result = None;
                     self.dash_last_score = None;
                     self.game_2048_last_result = None;
+                    self.vsrg_last_result = None;
                 }
                 _ => {}
             }
@@ -391,6 +399,29 @@ impl App {
             return;
         }
 
+        // Handle active VSRG game
+        if let Some(game) = self.vsrg_game.as_mut() {
+            match key {
+                KeyCode::Char('d') => {
+                    game.hit(0);
+                }
+                KeyCode::Char('f') => {
+                    game.hit(1);
+                }
+                KeyCode::Char('j') => {
+                    game.hit(2);
+                }
+                KeyCode::Char('k') => {
+                    game.hit(3);
+                }
+                KeyCode::Char('q') | KeyCode::Esc => {
+                    self.finish_vsrg_game();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.show_tetris_mode_menu {
             match key {
                 KeyCode::Char('1') => {
@@ -436,6 +467,9 @@ impl App {
                 }
                 KeyCode::Char('6') => {
                     self.start_2048_game();
+                }
+                KeyCode::Char('7') => {
+                    self.start_vsrg_game();
                 }
                 KeyCode::Char(' ') | KeyCode::Char('q') | KeyCode::Esc => {
                     self.show_minigame_menu = false;
@@ -675,6 +709,17 @@ impl App {
             false
         };
 
+        let vsrg_finished = if let Some(game) = self.vsrg_game.as_mut() {
+            let size = self.last_terminal_size;
+            if size.0 > 0 && size.1 > 0 {
+                game.update_bounds(size);
+                game.update(dt);
+            }
+            game.is_finished()
+        } else {
+            false
+        };
+
         // Update crab only if no game is active
         if self.mini_game.is_none()
             && self.snake_game.is_none()
@@ -682,6 +727,7 @@ impl App {
             && self.tetris_game.is_none()
             && self.dash_game.is_none()
             && self.game_2048.is_none()
+            && self.vsrg_game.is_none()
             && bounds.0 > 0.0
             && bounds.1 > 0.0
         {
@@ -710,6 +756,10 @@ impl App {
 
         if game_2048_finished {
             self.finish_2048_game();
+        }
+
+        if vsrg_finished {
+            self.finish_vsrg_game();
         }
 
         // Check for file system events (new commits)
@@ -893,7 +943,8 @@ impl App {
             || self.breakout_game.is_some()
             || self.tetris_game.is_some()
             || self.dash_game.is_some()
-            || self.game_2048.is_some();
+            || self.game_2048.is_some()
+            || self.vsrg_game.is_some();
         let show_stats_panel = self.show_stats && !any_game_active;
 
         // Layout: Title | Crab Area | Stats (optional)
@@ -946,6 +997,8 @@ impl App {
             widgets::render_dash_game(frame, game, crab_area);
         } else if let Some(game) = &self.game_2048 {
             widgets::render_2048_game(frame, game, crab_area);
+        } else if let Some(game) = &self.vsrg_game {
+            widgets::render_vsrg_game(frame, game, crab_area);
         } else {
             // 2. Environment background (sky, sun/moon, clouds, stars)
             widgets::render_environment_background(frame, &self.environment, crab_area);
@@ -1013,6 +1066,10 @@ impl App {
 
         if let Some((score, max_tile)) = self.game_2048_last_result {
             widgets::render_2048_results(frame, area, score, max_tile, &self.app_state);
+        }
+
+        if let Some((score, accuracy, max_combo)) = self.vsrg_last_result {
+            widgets::render_vsrg_results(frame, area, score, accuracy, max_combo, &self.app_state);
         }
 
         if self.show_tetris_mode_menu {
@@ -1147,6 +1204,18 @@ impl App {
         self.set_temp_message("2048! Merge tiles to reach the top.");
     }
 
+    fn start_vsrg_game(&mut self) {
+        let bounds = if self.last_terminal_size.0 > 0 && self.last_terminal_size.1 > 0 {
+            self.last_terminal_size
+        } else {
+            (self.environment.width, self.environment.height)
+        };
+        self.vsrg_game = Some(VsrgGame::new(bounds));
+        self.show_minigame_menu = false;
+        self.vsrg_last_result = None;
+        self.set_temp_message("VSRG! Hit notes with D F J K.");
+    }
+
     fn finish_tetris_game(&mut self) {
         if let Some(game) = self.tetris_game.take() {
             self.record_tetris_result(game.mode, game.score, game.elapsed_time);
@@ -1165,6 +1234,13 @@ impl App {
         if let Some(game) = self.game_2048.take() {
             self.record_2048_score(game.score);
             self.game_2048_last_result = Some((game.score, game.max_tile()));
+        }
+    }
+
+    fn finish_vsrg_game(&mut self) {
+        if let Some(game) = self.vsrg_game.take() {
+            self.record_vsrg_score(game.score);
+            self.vsrg_last_result = Some((game.score, game.accuracy(), game.max_combo));
         }
     }
 
@@ -1227,6 +1303,14 @@ impl App {
             .sort_by(|a, b| b.cmp(a));
         if self.app_state.game_2048_best_scores.len() > 100 {
             self.app_state.game_2048_best_scores.truncate(100);
+        }
+    }
+
+    fn record_vsrg_score(&mut self, score: u32) {
+        self.app_state.vsrg_best_scores.push(score);
+        self.app_state.vsrg_best_scores.sort_by(|a, b| b.cmp(a));
+        if self.app_state.vsrg_best_scores.len() > 100 {
+            self.app_state.vsrg_best_scores.truncate(100);
         }
     }
 

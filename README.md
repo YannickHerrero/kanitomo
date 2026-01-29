@@ -26,7 +26,7 @@ So "Kanitomo" literally means "crab friend" - your little terminal companion tha
 - **Kani talks!** - Dynamic mood-based messages in the title bar
 - **Multi-repo support** - Run in your dev folder to watch all projects at once
 - **Commit tracking** - See today's commits per project and weekly summary
-- **Mini-games** - Take a break with Crab Catch, Snake, Breakout, Tetris, Dash, and 2048
+- **Mini-games** - Take a break with Crab Catch, Snake, Breakout, Tetris, Dash, 2048, and VSRG
 - Happiness is driven by today's commits (fast early gains, slower near the top)
 - Weekends off - Kani won't get sad while you rest
 - Persistent state - Kani remembers you between sessions
@@ -76,6 +76,7 @@ kanitomo -g snake
 kanitomo --game breakout
 kanitomo -g tetris       # Shows Tetris mode menu first
 kanitomo --game 2048
+kanitomo --game vsrg
 ```
 
 Scores from standalone games are saved to the same leaderboards as in-app games.
@@ -160,6 +161,15 @@ Slide tiles to merge matching numbers and build the highest score.
 |-----|--------|
 | `←` `→` `↑` `↓` / `h` `j` `k` `l` / `w` `a` `s` `d` | Move tiles |
 | `r` | Restart game |
+| `q` | Exit game |
+
+#### VSRG
+
+Vertical scrolling rhythm game (4K). Notes fall toward the hit line; press the matching lane key in time.
+
+| Key | Action |
+|-----|--------|
+| `d` `f` `j` `k` | Hit notes |
 | `q` | Exit game |
 
 ### Happiness

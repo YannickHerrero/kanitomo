@@ -1,8 +1,11 @@
 use crate::state::AppState;
-use crate::ui::minigames::{BreakoutGame, DashGame, Game2048, SnakeGame, TetrisGame, TetrisMode};
+use crate::ui::minigames::vsrg::{VsrgJudgment, VsrgLaneFlashKind};
+use crate::ui::minigames::{
+    vsrg_lane_count, BreakoutGame, DashGame, Game2048, SnakeGame, TetrisGame, TetrisMode, VsrgGame,
+};
 use crate::ui::CrabCatchGame;
 use ratatui::{
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -49,10 +52,14 @@ pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
         Span::styled("  [6] ", Style::default().fg(Color::Yellow)),
         Span::styled("2048", Style::default().fg(Color::White)),
     ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [7] ", Style::default().fg(Color::Yellow)),
+        Span::styled("VSRG", Style::default().fg(Color::White)),
+    ]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  Press [1]..[6] to start",
+        "  Press [1]..[7] to start",
         Style::default().fg(Color::DarkGray),
     )]));
     lines.push(Line::from(vec![Span::styled(
@@ -837,6 +844,209 @@ pub fn render_dash_game(frame: &mut Frame, game: &DashGame, area: Rect) {
     frame.render_widget(hud_widget, hud_area);
 }
 
+/// Render the VSRG mini-game
+pub fn render_vsrg_game(frame: &mut Frame, game: &VsrgGame, area: Rect) {
+    if area.width < 24 || area.height < 10 {
+        return;
+    }
+
+    let lanes = vsrg_lane_count() as u16;
+    let lane_width: u16 = 4;
+    let separator_width: u16 = 1;
+    let inner_width = lanes * lane_width + (lanes - 1) * separator_width;
+    let inner_height = area.height.saturating_sub(2).max(6);
+    let play_width = inner_width.saturating_add(2);
+    let play_height = inner_height.saturating_add(2);
+    let play_x = area.x + (area.width.saturating_sub(play_width) / 2);
+    let play_y = area.y + (area.height.saturating_sub(play_height) / 2);
+
+    let play_area = Rect {
+        x: play_x,
+        y: play_y,
+        width: play_width,
+        height: play_height,
+    };
+
+    let border_style = Style::default().fg(Color::DarkGray);
+    let horizontal_border = "-".repeat(play_width as usize);
+
+    frame.render_widget(
+        Paragraph::new(horizontal_border.clone()).style(border_style),
+        Rect {
+            x: play_area.x,
+            y: play_area.y,
+            width: play_width,
+            height: 1,
+        },
+    );
+    frame.render_widget(
+        Paragraph::new(horizontal_border).style(border_style),
+        Rect {
+            x: play_area.x,
+            y: play_area.y + play_height.saturating_sub(1),
+            width: play_width,
+            height: 1,
+        },
+    );
+
+    for dy in 1..play_height.saturating_sub(1) {
+        frame.render_widget(
+            Paragraph::new("|").style(border_style),
+            Rect {
+                x: play_area.x,
+                y: play_area.y + dy,
+                width: 1,
+                height: 1,
+            },
+        );
+        frame.render_widget(
+            Paragraph::new("|").style(border_style),
+            Rect {
+                x: play_area.x + play_width.saturating_sub(1),
+                y: play_area.y + dy,
+                width: 1,
+                height: 1,
+            },
+        );
+    }
+
+    let separator_style = Style::default().fg(Color::Yellow);
+    for lane in 1..lanes {
+        let sep_x = play_area.x + 1 + lane * lane_width + (lane - 1) * separator_width;
+        for dy in 1..play_height.saturating_sub(1) {
+            if dy % 2 == 0 {
+                frame.render_widget(
+                    Paragraph::new(":").style(separator_style),
+                    Rect {
+                        x: sep_x,
+                        y: play_area.y + dy,
+                        width: 1,
+                        height: 1,
+                    },
+                );
+            }
+        }
+    }
+
+    let hit_line_y = play_area.y + play_height.saturating_sub(2);
+    let hit_line = "=".repeat(inner_width as usize);
+    frame.render_widget(
+        Paragraph::new(hit_line).style(Style::default().fg(Color::Yellow)),
+        Rect {
+            x: play_area.x + 1,
+            y: hit_line_y,
+            width: inner_width,
+            height: 1,
+        },
+    );
+
+    let hit_zone_y = hit_line_y.saturating_sub(1);
+    for lane in 0..lanes {
+        let lane_x = play_area.x + 1 + lane * (lane_width + separator_width);
+        let flash_color = game.lane_flashes[lane as usize].map(|flash| match flash.kind {
+            VsrgLaneFlashKind::Hit => Color::Green,
+            VsrgLaneFlashKind::Miss => Color::Red,
+        });
+        let base_color = flash_color.unwrap_or(Color::DarkGray);
+        render_block_cell(frame, lane_x, hit_zone_y, base_color, Modifier::BOLD);
+        render_block_cell(frame, lane_x + 2, hit_zone_y, base_color, Modifier::BOLD);
+    }
+
+    for note in &game.notes {
+        let lane = note.lane as u16;
+        let lane_x = play_area.x + 1 + lane * (lane_width + separator_width);
+        let note_x = lane_x + (lane_width.saturating_sub(2) / 2);
+        let note_y = play_area.y + 1 + note.y.round().max(0.0) as u16;
+        for dy in 0..note.length {
+            let draw_y = note_y + dy;
+            if draw_y >= play_area.y + play_height.saturating_sub(1) {
+                continue;
+            }
+            render_block_cell(frame, note_x, draw_y, Color::Cyan, Modifier::BOLD);
+        }
+    }
+
+    if let Some(feedback) = game.last_judgment {
+        let (label, color) = match feedback.judgment {
+            VsrgJudgment::Perfect => ("PERFECT", Color::Green),
+            VsrgJudgment::Great => ("GREAT", Color::Cyan),
+            VsrgJudgment::Ok => ("OK", Color::Yellow),
+            VsrgJudgment::Miss => ("MISS", Color::Red),
+        };
+        let feedback_area = Rect {
+            x: play_area.x + 2,
+            y: hit_line_y.saturating_sub(2),
+            width: inner_width.saturating_sub(2),
+            height: 1,
+        };
+        frame.render_widget(
+            Paragraph::new(label)
+                .style(Style::default().fg(color).add_modifier(Modifier::BOLD))
+                .alignment(Alignment::Center),
+            feedback_area,
+        );
+    }
+
+    let hud_lines = vec![
+        Line::from(vec![Span::styled(
+            "  VSRG",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("  Score: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.score.to_string(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Acc: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{:.1}%", game.accuracy()),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Combo: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                game.combo.to_string(),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Time: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{:.0}s", game.remaining_time().ceil()),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+    ];
+
+    let hud_width = 22.min(area.width.saturating_sub(2));
+    let hud_area = Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: hud_width.max(1),
+        height: 7.min(area.height.saturating_sub(2)),
+    };
+
+    let hud_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    let hud_widget = Paragraph::new(hud_lines).block(hud_block);
+    frame.render_widget(hud_widget, hud_area);
+}
+
 /// Render the 2048 mini-game
 pub fn render_2048_game(frame: &mut Frame, game: &Game2048, area: Rect) {
     let tile_width: u16 = 7;
@@ -1134,6 +1344,107 @@ pub fn render_dash_results(frame: &mut Frame, area: Rect, score: u32, app_state:
     lines.push(Line::from(vec![Span::styled(
         format!("  #{} - {} pts", rank, score),
         Style::default().fg(rank_color).add_modifier(Modifier::BOLD),
+    )]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Press [space] or [q] to close",
+        Style::default().fg(Color::DarkGray),
+    )]));
+
+    let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let overlay_width = 36.min(area.width.saturating_sub(4));
+    let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+    frame.render_widget(Clear, overlay_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " Results ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay_area);
+}
+
+/// Render the VSRG results screen
+pub fn render_vsrg_results(
+    frame: &mut Frame,
+    area: Rect,
+    score: u32,
+    accuracy: f32,
+    max_combo: u32,
+    app_state: &AppState,
+) {
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    lines.push(Line::from(vec![Span::styled(
+        "  VSRG",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  TOP SCORES",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    if app_state.vsrg_best_scores.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "  No scores yet",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]));
+    } else {
+        for (index, best) in app_state.vsrg_best_scores.iter().take(3).enumerate() {
+            lines.push(Line::from(vec![Span::styled(
+                format!("  #{} - {} pts", index + 1, best),
+                Style::default().fg(Color::White),
+            )]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  YOUR SCORE",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]));
+
+    let rank = calculate_rank(&app_state.vsrg_best_scores, score);
+    let rank_color = match rank {
+        1 => Color::Rgb(255, 215, 0),
+        2 => Color::Rgb(192, 192, 192),
+        3 => Color::Rgb(205, 127, 50),
+        _ => Color::Green,
+    };
+    lines.push(Line::from(vec![Span::styled(
+        format!("  #{} - {} pts", rank, score),
+        Style::default().fg(rank_color).add_modifier(Modifier::BOLD),
+    )]));
+
+    lines.push(Line::from(vec![Span::styled(
+        format!("  Accuracy: {:.1}%", accuracy),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+    lines.push(Line::from(vec![Span::styled(
+        format!("  Max Combo: {}", max_combo),
+        Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::BOLD),
     )]));
 
     lines.push(Line::from(""));

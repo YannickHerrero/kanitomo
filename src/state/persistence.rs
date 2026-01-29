@@ -78,6 +78,9 @@ pub struct AppState {
     /// Best 2048 scores (highest first)
     #[serde(default)]
     pub game_2048_best_scores: Vec<u32>,
+    /// Best VSRG scores (highest first)
+    #[serde(default)]
+    pub vsrg_best_scores: Vec<u32>,
 }
 
 fn default_version() -> u32 {
@@ -107,6 +110,7 @@ impl Default for AppState {
             tetris_survival_scores: Vec::new(),
             dash_best_scores: Vec::new(),
             game_2048_best_scores: Vec::new(),
+            vsrg_best_scores: Vec::new(),
         }
     }
 }

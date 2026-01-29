@@ -117,6 +117,10 @@ pub fn render_help_overlay(
         Span::styled("jump (dash)", Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from(vec![
+        Span::styled("  [d][f][j][k] ", Style::default().fg(Color::Yellow)),
+        Span::styled("hit notes (vsrg)", Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
         Span::styled("  [r] ", Style::default().fg(Color::Yellow)),
         Span::styled("restart (2048)", Style::default().fg(Color::White)),
     ]));
