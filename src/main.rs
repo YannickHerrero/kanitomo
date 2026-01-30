@@ -235,7 +235,7 @@ fn run_standalone_game_loop(
             let area = frame.area();
             match &current_state {
                 StandaloneState::GameMenu => {
-                    widgets::render_minigame_menu(frame, area);
+                    widgets::render_minigame_menu(frame, area, &app_state);
                 }
                 StandaloneState::TetrisModeMenu => {
                     widgets::render_tetris_mode_menu(frame, area);

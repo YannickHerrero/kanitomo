@@ -1035,7 +1035,7 @@ impl App {
         }
 
         if self.show_minigame_menu {
-            widgets::render_minigame_menu(frame, area);
+            widgets::render_minigame_menu(frame, area, &self.app_state);
         }
 
         if let Some(score) = self.minigame_last_score {

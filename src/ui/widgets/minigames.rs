@@ -1,3 +1,4 @@
+use crate::git::format_time_ago;
 use crate::state::AppState;
 use crate::ui::minigames::vsrg::{VsrgJudgment, VsrgLaneFlashKind};
 use crate::ui::minigames::{
@@ -5,7 +6,7 @@ use crate::ui::minigames::{
 };
 use crate::ui::CrabCatchGame;
 use ratatui::{
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -16,79 +17,373 @@ use super::helpers::{
     calculate_rank, centered_rect, piece_color, render_block_cell, tile_colors, tile_label,
 };
 
-/// Render the mini-game selection menu
-pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
-    let mut lines: Vec<Line> = vec![Line::from("")];
+struct GameCard<'a> {
+    number: u8,
+    title: &'a str,
+    description: &'a str,
+    tags: &'a str,
+    stats: String,
+}
 
-    lines.push(Line::from(vec![Span::styled(
-        "  MINI GAMES",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    )]));
+fn render_game_card(frame: &mut Frame, area: Rect, card: &GameCard<'_>) {
+    if area.width < 18 || area.height < 4 {
+        let title = format!("[{}] {}", card.number, card.title);
+        let paragraph = Paragraph::new(title)
+            .style(Style::default().fg(Color::Cyan))
+            .alignment(Alignment::Left);
+        frame.render_widget(paragraph, area);
+        return;
+    }
 
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled("  [1] ", Style::default().fg(Color::Yellow)),
-        Span::styled("Kanitomo", Style::default().fg(Color::White)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("  [2] ", Style::default().fg(Color::Yellow)),
-        Span::styled("Crab Catch", Style::default().fg(Color::White)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("  [3] ", Style::default().fg(Color::Yellow)),
-        Span::styled("Snake", Style::default().fg(Color::White)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("  [4] ", Style::default().fg(Color::Yellow)),
-        Span::styled("Breakout", Style::default().fg(Color::White)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("  [5] ", Style::default().fg(Color::Yellow)),
-        Span::styled("Tetris", Style::default().fg(Color::White)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("  [6] ", Style::default().fg(Color::Yellow)),
-        Span::styled("Dash", Style::default().fg(Color::White)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("  [7] ", Style::default().fg(Color::Yellow)),
-        Span::styled("2048", Style::default().fg(Color::White)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("  [8] ", Style::default().fg(Color::Yellow)),
-        Span::styled("VSRG", Style::default().fg(Color::White)),
-    ]));
-
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![Span::styled(
-        "  Press [1]..[8] to start",
-        Style::default().fg(Color::DarkGray),
-    )]));
-    lines.push(Line::from(vec![Span::styled(
-        "  Press [space] or [q] to close",
-        Style::default().fg(Color::DarkGray),
-    )]));
-
-    let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
-    let overlay_width = 46.min(area.width.saturating_sub(4));
-    let overlay_area = centered_rect(overlay_width, overlay_height, area);
-
-    frame.render_widget(Clear, overlay_area);
-
+    let title = format!(" [{}] {} ", card.number, card.title);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_style(Style::default().fg(Color::DarkGray))
         .title(Span::styled(
-            " Mini Games ",
+            title,
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ));
 
+    let lines = vec![
+        Line::from(vec![Span::styled(
+            card.description,
+            Style::default().fg(Color::White),
+        )]),
+        Line::from(vec![Span::styled(
+            card.tags,
+            Style::default().fg(Color::DarkGray),
+        )]),
+        Line::from(vec![Span::styled(
+            card.stats.clone(),
+            Style::default().fg(Color::Green),
+        )]),
+    ];
+
     let paragraph = Paragraph::new(lines).block(block);
-    frame.render_widget(paragraph, overlay_area);
+    frame.render_widget(paragraph, area);
+}
+
+/// Render the mini-game selection menu
+pub fn render_minigame_menu(frame: &mut Frame, area: Rect, app_state: &AppState) {
+    if area.width < 60 || area.height < 22 {
+        let mut lines: Vec<Line> = vec![Line::from("")];
+
+        lines.push(Line::from(vec![Span::styled(
+            "  MINI GAMES",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]));
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  [1] ", Style::default().fg(Color::Yellow)),
+            Span::styled("Kanitomo", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [2] ", Style::default().fg(Color::Yellow)),
+            Span::styled("Crab Catch", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [3] ", Style::default().fg(Color::Yellow)),
+            Span::styled("Snake", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [4] ", Style::default().fg(Color::Yellow)),
+            Span::styled("Breakout", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [5] ", Style::default().fg(Color::Yellow)),
+            Span::styled("Tetris", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [6] ", Style::default().fg(Color::Yellow)),
+            Span::styled("Dash", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [7] ", Style::default().fg(Color::Yellow)),
+            Span::styled("2048", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  [8] ", Style::default().fg(Color::Yellow)),
+            Span::styled("VSRG", Style::default().fg(Color::White)),
+        ]));
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![Span::styled(
+            "  Press [1]..[8] to start",
+            Style::default().fg(Color::DarkGray),
+        )]));
+        lines.push(Line::from(vec![Span::styled(
+            "  Press [space] or [q] to close",
+            Style::default().fg(Color::DarkGray),
+        )]));
+
+        let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+        let overlay_width = 46.min(area.width.saturating_sub(4));
+        let overlay_area = centered_rect(overlay_width, overlay_height, area);
+
+        frame.render_widget(Clear, overlay_area);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(Span::styled(
+                " Mini Games ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ));
+
+        let paragraph = Paragraph::new(lines).block(block);
+        frame.render_widget(paragraph, overlay_area);
+        return;
+    }
+
+    let total_plays = app_state.minigame_best_scores.len()
+        + app_state.snake_best_scores.len()
+        + app_state.breakout_best_scores.len()
+        + app_state.tetris_normal_scores.len()
+        + app_state.tetris_sprint_times.len()
+        + app_state.tetris_zen_scores.len()
+        + app_state.tetris_dig_scores.len()
+        + app_state.tetris_survival_scores.len()
+        + app_state.dash_best_scores.len()
+        + app_state.game_2048_best_scores.len()
+        + app_state.vsrg_best_scores.len();
+
+    let best_score = |scores: &[u32]| -> String {
+        scores
+            .first()
+            .map(|score| score.to_string())
+            .unwrap_or_else(|| "--".to_string())
+    };
+
+    let best_sprint = app_state
+        .tetris_sprint_times
+        .first()
+        .map(|time| format!("{:.1}s", time))
+        .unwrap_or_else(|| "--".to_string());
+
+    let cards = vec![
+        GameCard {
+            number: 1,
+            title: "Kanitomo",
+            description: "Virtual crab companion.",
+            tags: "Lifestyle / Chill",
+            stats: format!(
+                "Streak: {} days | Best: {} days",
+                app_state.current_streak, app_state.best_streak
+            ),
+        },
+        GameCard {
+            number: 2,
+            title: "Crab Catch",
+            description: "Catch falling snacks.",
+            tags: "Arcade / Easy",
+            stats: format!("Best: {}", best_score(&app_state.minigame_best_scores)),
+        },
+        GameCard {
+            number: 3,
+            title: "Snake",
+            description: "Grow without crashing.",
+            tags: "Arcade / Classic",
+            stats: format!("Best: {}", best_score(&app_state.snake_best_scores)),
+        },
+        GameCard {
+            number: 4,
+            title: "Breakout",
+            description: "Clear the bricks.",
+            tags: "Arcade / Medium",
+            stats: format!("Best: {}", best_score(&app_state.breakout_best_scores)),
+        },
+        GameCard {
+            number: 5,
+            title: "Tetris",
+            description: "Stack and clear lines.",
+            tags: "Puzzle / Hard",
+            stats: format!(
+                "Best: {} | Sprint: {}",
+                best_score(&app_state.tetris_normal_scores),
+                best_sprint
+            ),
+        },
+        GameCard {
+            number: 6,
+            title: "Dash",
+            description: "Jump over hazards.",
+            tags: "Runner / Fast",
+            stats: format!("Best: {}", best_score(&app_state.dash_best_scores)),
+        },
+        GameCard {
+            number: 7,
+            title: "2048",
+            description: "Merge to the top tile.",
+            tags: "Puzzle / Relax",
+            stats: format!("Best: {}", best_score(&app_state.game_2048_best_scores)),
+        },
+        GameCard {
+            number: 8,
+            title: "VSRG",
+            description: "Hit the notes in time.",
+            tags: "Rhythm / Hard",
+            stats: format!("Best: {}", best_score(&app_state.vsrg_best_scores)),
+        },
+    ];
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(7),
+            Constraint::Min(10),
+            Constraint::Length(2),
+        ])
+        .split(area);
+
+    let top_bar = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .split(layout[0]);
+
+    let title = Paragraph::new(Line::from(vec![Span::styled(
+        "KANITOMO ARCADE",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
+    frame.render_widget(title, top_bar[0]);
+
+    let version = env!("CARGO_PKG_VERSION");
+    let right_line = Line::from(vec![Span::styled(
+        format!("v{}  [Q] Quit", version),
+        Style::default().fg(Color::DarkGray),
+    )]);
+    let right = Paragraph::new(right_line).alignment(Alignment::Right);
+    frame.render_widget(right, top_bar[1]);
+
+    let hero_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            " TODAY'S PICK ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+    let hero_lines = vec![
+        Line::from(vec![Span::styled(
+            "KANITOMO",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            "Keep Kani happy by committing daily.",
+            Style::default().fg(Color::White),
+        )]),
+        Line::from(vec![Span::styled(
+            "Press [1] to play",
+            Style::default().fg(Color::Green),
+        )]),
+        Line::from(vec![Span::styled(
+            format!(
+                "Happiness: {}% | Current streak: {} days | Best: {} days",
+                app_state.happiness, app_state.current_streak, app_state.best_streak
+            ),
+            Style::default().fg(Color::DarkGray),
+        )]),
+    ];
+    let hero = Paragraph::new(hero_lines).block(hero_block);
+    frame.render_widget(hero, layout[1]);
+
+    let body = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(68), Constraint::Percentage(32)])
+        .split(layout[2]);
+
+    let grid_columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(body[0]);
+
+    let card_rows = vec![Constraint::Ratio(1, 4); 4];
+    let left_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(card_rows.clone())
+        .split(grid_columns[0]);
+    let right_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(card_rows)
+        .split(grid_columns[1]);
+
+    for (index, area) in left_rows.iter().enumerate() {
+        render_game_card(frame, *area, &cards[index]);
+    }
+    for (index, area) in right_rows.iter().enumerate() {
+        render_game_card(frame, *area, &cards[index + 4]);
+    }
+
+    let side_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(Span::styled(
+            " STATS ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let side_lines = vec![
+        Line::from(vec![Span::styled(
+            "RECENT",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            format!("Last commit: {}", format_time_ago(app_state.last_commit_time)),
+            Style::default().fg(Color::White),
+        )]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "TOTAL",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            format!("Games played: {}", total_plays),
+            Style::default().fg(Color::White),
+        )]),
+        Line::from(vec![Span::styled(
+            format!("Commits tracked: {}", app_state.total_commits_tracked),
+            Style::default().fg(Color::White),
+        )]),
+        Line::from(vec![Span::styled(
+            format!("Current streak: {} days", app_state.current_streak),
+            Style::default().fg(Color::White),
+        )]),
+        Line::from(vec![Span::styled(
+            format!("Best streak: {} days", app_state.best_streak),
+            Style::default().fg(Color::White),
+        )]),
+    ];
+    let side_panel = Paragraph::new(side_lines).block(side_block);
+    frame.render_widget(side_panel, body[1]);
+
+    let footer_line = Line::from(vec![
+        Span::styled(
+            "Press [1]..[8] to play",
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::styled("  |  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("[Q] Quit", Style::default().fg(Color::DarkGray)),
+    ]);
+    let footer = Paragraph::new(footer_line).alignment(Alignment::Center);
+    frame.render_widget(footer, layout[3]);
 }
 
 /// Render the mini-game results screen
