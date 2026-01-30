@@ -1,12 +1,12 @@
 # Kanitomo
 
-A terminal pet crab that thrives on your git commits.
+A terminal mini-game collection featuring your pet crab companion.
 
 ## Demo
 
 https://github.com/user-attachments/assets/8840a134-07af-4b66-a437-713135699078
 
-*Meet Kani, your new coding companion. Feed them commits and watch them thrive!*
+*Meet Kani, your new coding companion, and a hub of arcade games to unwind.*
 
 ## About the Name
 
@@ -22,6 +22,8 @@ So "Kanitomo" literally means "crab friend" - your little terminal companion tha
 
 ## Features
 
+- A full-screen arcade menu with multiple mini-games
+- Kanitomo (virtual pet) as a selectable game
 - Watch Kani react to your git commits in real-time
 - **Kani talks!** - Dynamic mood-based messages in the title bar
 - **Multi-repo support** - Run in your dev folder to watch all projects at once
@@ -45,7 +47,7 @@ cargo install --git https://github.com/YannickHerrero/kanitomo
 
 ## Usage
 
-Run `kanitomo` in any git repository:
+Run `kanitomo` in any git repository to open the main menu:
 
 ```bash
 cd ~/projects/my-app
@@ -60,15 +62,19 @@ kanitomo
 ```
 
 Kani will automatically discover git repositories in immediate subdirectories and react to commits in any of them.
+When you quit a game, you'll return to the main menu.
 
 ### Standalone Games
 
-You can also launch mini-games directly without starting the full app:
+You can also launch a specific game directly:
 
 ```bash
-# Open game selection menu
+# Open game selection menu (same as default)
 kanitomo --game
 kanitomo -g
+
+# Launch Kanitomo (virtual pet) directly
+kanitomo --game kanitomo
 
 # Launch specific games directly
 kanitomo --game crabcatch
@@ -88,13 +94,12 @@ Scores from standalone games are saved to the same leaderboards as in-app games.
 | `a` | View watched repositories |
 | `d` | View commit stats (today's commits by project, weekly summary) |
 | `s` | Toggle stats panel |
-| `space` | Open mini-game menu |
 | `?` | Toggle help window |
 | `q` | Quit |
 
 ### Mini Games
 
-Press `space` to open the mini-game menu. Each game has its own leaderboard with top 100 scores tracked.
+The main menu opens at startup. Each game has its own leaderboard with top 100 scores tracked.
 
 #### Crab Catch
 Catch falling food with Kani in a 20-second timed round. The crab shows a happy face when catching food!
