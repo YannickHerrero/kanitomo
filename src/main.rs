@@ -41,7 +41,7 @@ fn main() -> Result<()> {
             None // No game name provided, show menu
         };
 
-        return handle_game_mode(game_name);
+        return handle_game_mode(game_name, debug_mode);
     }
 
     // Handle reset before setting up TUI
@@ -58,7 +58,7 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Create and run app
-    let result = run_app(&mut terminal, debug_mode);
+    let result = run_game_selection_menu(&mut terminal, debug_mode);
 
     // Restore terminal
     disable_raw_mode()?;
@@ -99,26 +99,30 @@ fn handle_reset() -> Result<()> {
     Ok(())
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, debug_mode: bool) -> Result<()> {
+fn run_tamagotchi(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    debug_mode: bool,
+) -> Result<()> {
     let mut app = App::new(debug_mode)?;
     app.run(terminal)?;
     Ok(())
 }
 
 /// Handle the --game flag
-fn handle_game_mode(game_name: Option<&str>) -> Result<()> {
+fn handle_game_mode(game_name: Option<&str>, debug_mode: bool) -> Result<()> {
     match game_name {
-        None => run_game_selection_menu(),
-        Some("crabcatch") => run_standalone_game("crabcatch"),
-        Some("snake") => run_standalone_game("snake"),
-        Some("breakout") => run_standalone_game("breakout"),
-        Some("tetris") => run_standalone_game("tetris"),
-        Some("dash") => run_standalone_game("dash"),
-        Some("2048") => run_standalone_game("2048"),
-        Some("vsrg") => run_standalone_game("vsrg"),
+        None => run_game_selection_menu_with_setup(debug_mode),
+        Some("kanitomo") => run_standalone_game("kanitomo", debug_mode),
+        Some("crabcatch") => run_standalone_game("crabcatch", debug_mode),
+        Some("snake") => run_standalone_game("snake", debug_mode),
+        Some("breakout") => run_standalone_game("breakout", debug_mode),
+        Some("tetris") => run_standalone_game("tetris", debug_mode),
+        Some("dash") => run_standalone_game("dash", debug_mode),
+        Some("2048") => run_standalone_game("2048", debug_mode),
+        Some("vsrg") => run_standalone_game("vsrg", debug_mode),
         Some(invalid) => {
             eprintln!(
-                "Unknown game '{}'. Available games: crabcatch, snake, breakout, tetris, dash, 2048, vsrg",
+                "Unknown game '{}'. Available games: kanitomo, crabcatch, snake, breakout, tetris, dash, 2048, vsrg",
                 invalid
             );
             std::process::exit(1);
@@ -146,7 +150,7 @@ enum StandaloneState {
 }
 
 /// Run the game selection menu
-fn run_game_selection_menu() -> Result<()> {
+fn run_game_selection_menu_with_setup(debug_mode: bool) -> Result<()> {
     // Set up terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -155,7 +159,7 @@ fn run_game_selection_menu() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_standalone_game_loop(&mut terminal, StandaloneState::GameMenu);
+    let result = run_game_selection_menu(&mut terminal, debug_mode);
 
     // Restore terminal
     disable_raw_mode()?;
@@ -165,8 +169,16 @@ fn run_game_selection_menu() -> Result<()> {
     result
 }
 
+/// Run the game selection menu
+fn run_game_selection_menu(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    debug_mode: bool,
+) -> Result<()> {
+    run_standalone_game_loop(terminal, StandaloneState::GameMenu, debug_mode)
+}
+
 /// Run a specific game directly
-fn run_standalone_game(game_name: &str) -> Result<()> {
+fn run_standalone_game(game_name: &str, debug_mode: bool) -> Result<()> {
     // Set up terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -179,18 +191,23 @@ fn run_standalone_game(game_name: &str) -> Result<()> {
     let size = terminal.size()?;
     let bounds = (size.width, size.height);
 
-    let initial_state = match game_name {
-        "crabcatch" => StandaloneState::PlayingCrabCatch(CrabCatchGame::new(bounds)),
-        "snake" => StandaloneState::PlayingSnake(SnakeGame::new(bounds)),
-        "breakout" => StandaloneState::PlayingBreakout(BreakoutGame::new(bounds)),
-        "tetris" => StandaloneState::TetrisModeMenu,
-        "dash" => StandaloneState::PlayingDash(DashGame::new(bounds)),
-        "2048" => StandaloneState::Playing2048(Game2048::new()),
-        "vsrg" => StandaloneState::PlayingVsrg(VsrgGame::new(bounds)),
-        _ => unreachable!(),
-    };
+    let result = if game_name == "kanitomo" {
+        run_tamagotchi(&mut terminal, debug_mode)?;
+        run_standalone_game_loop(&mut terminal, StandaloneState::GameMenu, debug_mode)
+    } else {
+        let initial_state = match game_name {
+            "crabcatch" => StandaloneState::PlayingCrabCatch(CrabCatchGame::new(bounds)),
+            "snake" => StandaloneState::PlayingSnake(SnakeGame::new(bounds)),
+            "breakout" => StandaloneState::PlayingBreakout(BreakoutGame::new(bounds)),
+            "tetris" => StandaloneState::TetrisModeMenu,
+            "dash" => StandaloneState::PlayingDash(DashGame::new(bounds)),
+            "2048" => StandaloneState::Playing2048(Game2048::new()),
+            "vsrg" => StandaloneState::PlayingVsrg(VsrgGame::new(bounds)),
+            _ => unreachable!(),
+        };
 
-    let result = run_standalone_game_loop(&mut terminal, initial_state);
+        run_standalone_game_loop(&mut terminal, initial_state, debug_mode)
+    };
 
     // Restore terminal
     disable_raw_mode()?;
@@ -204,6 +221,7 @@ fn run_standalone_game(game_name: &str) -> Result<()> {
 fn run_standalone_game_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     initial_state: StandaloneState,
+    debug_mode: bool,
 ) -> Result<()> {
     let state_manager = StateManager::new()?;
     let mut app_state = state_manager.load()?;
@@ -280,39 +298,47 @@ fn run_standalone_game_loop(
                 match &mut current_state {
                     StandaloneState::GameMenu => match key.code {
                         KeyCode::Char('1') => {
-                            let size = terminal.size()?;
-                            current_state = StandaloneState::PlayingCrabCatch(CrabCatchGame::new(
-                                (size.width, size.height),
-                            ));
+                            run_tamagotchi(terminal, debug_mode)?;
+                            app_state = state_manager.load()?;
+                            last_update = Instant::now();
+                            last_size = terminal.size()?;
+                            current_state = StandaloneState::GameMenu;
                         }
                         KeyCode::Char('2') => {
                             let size = terminal.size()?;
-                            current_state = StandaloneState::PlayingSnake(SnakeGame::new((
+                            current_state = StandaloneState::PlayingCrabCatch(CrabCatchGame::new((
                                 size.width,
                                 size.height,
                             )));
                         }
                         KeyCode::Char('3') => {
                             let size = terminal.size()?;
-                            current_state = StandaloneState::PlayingBreakout(BreakoutGame::new((
+                            current_state = StandaloneState::PlayingSnake(SnakeGame::new((
                                 size.width,
                                 size.height,
                             )));
                         }
                         KeyCode::Char('4') => {
-                            current_state = StandaloneState::TetrisModeMenu;
+                            let size = terminal.size()?;
+                            current_state = StandaloneState::PlayingBreakout(BreakoutGame::new((
+                                size.width,
+                                size.height,
+                            )));
                         }
                         KeyCode::Char('5') => {
+                            current_state = StandaloneState::TetrisModeMenu;
+                        }
+                        KeyCode::Char('6') => {
                             let size = terminal.size()?;
                             current_state = StandaloneState::PlayingDash(DashGame::new((
                                 size.width,
                                 size.height,
                             )));
                         }
-                        KeyCode::Char('6') => {
+                        KeyCode::Char('7') => {
                             current_state = StandaloneState::Playing2048(Game2048::new());
                         }
-                        KeyCode::Char('7') => {
+                        KeyCode::Char('8') => {
                             let size = terminal.size()?;
                             current_state = StandaloneState::PlayingVsrg(VsrgGame::new((
                                 size.width,
@@ -347,7 +373,7 @@ fn run_standalone_game_loop(
                             ));
                         }
                         KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char(' ') => {
-                            return Ok(());
+                            current_state = StandaloneState::GameMenu;
                         }
                         _ => {}
                     },
@@ -359,7 +385,7 @@ fn run_standalone_game_loop(
                             game.move_crab(1);
                         }
                         KeyCode::Char('q') => {
-                            return Ok(());
+                            current_state = StandaloneState::GameMenu;
                         }
                         _ => {}
                     },
@@ -377,7 +403,7 @@ fn run_standalone_game_loop(
                             game.set_direction(ui::minigames::Direction::Down);
                         }
                         KeyCode::Char('q') => {
-                            return Ok(());
+                            current_state = StandaloneState::GameMenu;
                         }
                         _ => {}
                     },
@@ -392,7 +418,7 @@ fn run_standalone_game_loop(
                             game.launch_ball();
                         }
                         KeyCode::Char('q') => {
-                            return Ok(());
+                            current_state = StandaloneState::GameMenu;
                         }
                         _ => {}
                     },
@@ -419,7 +445,7 @@ fn run_standalone_game_loop(
                             game.hard_drop();
                         }
                         KeyCode::Char('q') => {
-                            return Ok(());
+                            current_state = StandaloneState::GameMenu;
                         }
                         _ => {}
                     },
@@ -428,7 +454,7 @@ fn run_standalone_game_loop(
                             game.jump();
                         }
                         KeyCode::Char('q') => {
-                            return Ok(());
+                            current_state = StandaloneState::GameMenu;
                         }
                         _ => {}
                     },
@@ -449,7 +475,7 @@ fn run_standalone_game_loop(
                             game.reset();
                         }
                         KeyCode::Char('q') => {
-                            return Ok(());
+                            current_state = StandaloneState::GameMenu;
                         }
                         _ => {}
                     },
@@ -467,7 +493,7 @@ fn run_standalone_game_loop(
                             game.hit(3);
                         }
                         KeyCode::Char('q') => {
-                            return Ok(());
+                            current_state = StandaloneState::GameMenu;
                         }
                         _ => {}
                     },
@@ -479,7 +505,7 @@ fn run_standalone_game_loop(
                     | StandaloneState::Show2048Results(_, _)
                     | StandaloneState::ShowVsrgResults(_, _, _) => {
                         // Any key exits from results screen
-                        return Ok(());
+                        current_state = StandaloneState::GameMenu;
                     }
                 }
             }

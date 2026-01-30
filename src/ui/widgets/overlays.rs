@@ -41,10 +41,6 @@ pub fn render_help_overlay(
         Span::styled("refresh", Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("  [space] ", Style::default().fg(Color::Yellow)),
-        Span::styled("mini games", Style::default().fg(Color::White)),
-    ]));
-    lines.push(Line::from(vec![
         Span::styled("  [d] ", Style::default().fg(Color::Yellow)),
         Span::styled("details", Style::default().fg(Color::White)),
     ]));

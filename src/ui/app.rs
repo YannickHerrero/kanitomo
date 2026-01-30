@@ -548,12 +548,6 @@ impl App {
                 // Manual refresh
                 self.refresh_stats();
             }
-            KeyCode::Char(' ') => {
-                self.show_minigame_menu = true;
-                self.show_repo_list = false;
-                self.show_details = false;
-                self.show_help = false;
-            }
             KeyCode::Char('?') => {
                 // Toggle help window
                 self.show_help = !self.show_help;

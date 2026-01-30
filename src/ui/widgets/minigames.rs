@@ -30,36 +30,40 @@ pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled("  [1] ", Style::default().fg(Color::Yellow)),
-        Span::styled("Crab Catch", Style::default().fg(Color::White)),
+        Span::styled("Kanitomo", Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  [2] ", Style::default().fg(Color::Yellow)),
-        Span::styled("Snake", Style::default().fg(Color::White)),
+        Span::styled("Crab Catch", Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  [3] ", Style::default().fg(Color::Yellow)),
-        Span::styled("Breakout", Style::default().fg(Color::White)),
+        Span::styled("Snake", Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  [4] ", Style::default().fg(Color::Yellow)),
-        Span::styled("Tetris", Style::default().fg(Color::White)),
+        Span::styled("Breakout", Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  [5] ", Style::default().fg(Color::Yellow)),
-        Span::styled("Dash", Style::default().fg(Color::White)),
+        Span::styled("Tetris", Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  [6] ", Style::default().fg(Color::Yellow)),
-        Span::styled("2048", Style::default().fg(Color::White)),
+        Span::styled("Dash", Style::default().fg(Color::White)),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  [7] ", Style::default().fg(Color::Yellow)),
+        Span::styled("2048", Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [8] ", Style::default().fg(Color::Yellow)),
         Span::styled("VSRG", Style::default().fg(Color::White)),
     ]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
-        "  Press [1]..[7] to start",
+        "  Press [1]..[8] to start",
         Style::default().fg(Color::DarkGray),
     )]));
     lines.push(Line::from(vec![Span::styled(
@@ -68,7 +72,7 @@ pub fn render_minigame_menu(frame: &mut Frame, area: Rect) {
     )]));
 
     let overlay_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
-    let overlay_width = 44.min(area.width.saturating_sub(4));
+    let overlay_width = 46.min(area.width.saturating_sub(4));
     let overlay_area = centered_rect(overlay_width, overlay_height, area);
 
     frame.render_widget(Clear, overlay_area);
